@@ -52,11 +52,19 @@ bool speechControlMode = false;   //Setting mode awal
 bool obstacleDetectitonMode = false;   //Setting sensor ultrasonic
 BLECharacteristic *txCharacteristic;
 String data;
+void forward();
+void backward();
+void turnLeft();
+void turnRight();
+void stopRobot();
 
 //===== Callback BLE RX (Joystick Controller) =====
 class RxCallback : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *characteristic) {
     String rxValue = characteristic->getValue();
+    if (rxValue){
+      Serial.println("data masuk");
+    }
 
     if (rxValue.length() > 0) {
       Serial.print("Perintah diterima: ");
