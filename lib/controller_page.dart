@@ -437,9 +437,9 @@ class ControllerPageState extends State<ControllerPage> {
     } else if (button == 'Y') {
        yIsOn = !yIsOn;   
        if (yIsOn) {
-          sendData('Y_ON');   
+          sendData('YisON');   
       } else {
-        sendData('Y_OFF');  
+        sendData('YisOFF');  
       }
     }
   }
