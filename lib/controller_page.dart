@@ -412,6 +412,8 @@ class ControllerPageState extends State<ControllerPage> {
       _ => 'S',
     };
 
+    bool yIsOn = false;
+
     if (command != 'S') {
       sendData(command);
     } else if (button == 'A') {
@@ -422,6 +424,13 @@ class ControllerPageState extends State<ControllerPage> {
       sendData('X');
     } else if (button == 'Y') {
       sendData('Y');
+    } else if (button == 'Y') {
+       yIsOn = !yIsOn;   
+       if (yIsOn) {
+          sendData('Y_ON');   
+      } else {
+        sendData('Y_OFF');  
+      }
     }
   }
 
