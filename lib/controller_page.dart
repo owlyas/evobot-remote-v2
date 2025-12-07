@@ -9,7 +9,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const String txCharUUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const String rxCharUUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const String txCharUUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
 class ControllerPage extends StatefulWidget {
   const ControllerPage({Key? key}) : super(key: key);
@@ -23,6 +24,7 @@ class ControllerPageState extends State<ControllerPage> {
   bool isScanning = false;
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? txCharacteristic;
+  BluetoothCharacteristic? rxCharacteristic;
   bool isWifiScanning = false;
   List<WifiNetwork> wifiNetworks = [];
   Timer? stopTimer;
@@ -337,39 +339,46 @@ class ControllerPageState extends State<ControllerPage> {
     }
   }
 
-  // Future<void> connectToDevice(BluetoothDevice device) async {
-  //   try {
-  //     await device.connect(timeout: const Duration(seconds: 15));
-  //     connectedDevice = device;
-  //     isConnected = true;
-  //     setState(() {});
+  Future<void> connectToDevice(BluetoothDevice device) async {
+    try {
+      await device.connect(timeout: const Duration(seconds: 15));
+      connectedDevice = device;
+      isConnected = true;
+      setState(() {});
 
-  //     print('✅ Connected! Discovering services...');
-  //     List<BluetoothService> services = await device.discoverServices();
+      print('✅ Connected! Discovering services...');
+      List<BluetoothService> services = await device.discoverServices();
 
-  //     for (BluetoothService service in services) {
-  //       if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
-  //         print('✅ UART Service found');
+      for (BluetoothService service in services) {
+        if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
+          print('✅ UART Service found');
 
-  //         for (BluetoothCharacteristic c in service.characteristics) {
-  //           if (c.uuid.toString().toLowerCase() == txCharUUID) {
-  //             txCharacteristic = c;
-  //             print('✅ TX Characteristic ready: ${c.uuid}');
-  //             showSuccess('Ready to control ESP32 🚗');
-  //           }
-  //         }
-  //       }
-  //     }
+          for (BluetoothCharacteristic c in service.characteristics) {
 
-  //     if (txCharacteristic == null) {
-  //       print('❌ TX characteristic NOT FOUND');
-  //       showError('Cannot control ESP32 – TX characteristic missing!');
-  //     }
-  //   } catch (e) {
-  //     print('❌ Error connecting: $e');
-  //     showError('Connection failed');
-  //   }
-  // }
+            // RX = phone → ESP32
+            if (c.uuid.toString().toLowerCase() == rxCharUUID) {
+              rxCharacteristic = c;
+              print('✅ RX Characteristic found (Write): ${c.uuid}');
+            }
+
+            // TX = ESP32 → phone
+            if (c.uuid.toString().toLowerCase() == txCharUUID) {
+              txCharacteristic = c;
+              print('✅ TX Characteristic found (Notify): ${c.uuid}');
+            }
+          }
+        }
+      }
+
+      if (txCharacteristic == null) {
+        print('❌ TX characteristic NOT FOUND');
+        showError('Cannot control ESP32 – TX characteristic missing!');
+      }
+    } catch (e) {
+      print('❌ Error connecting: $e');
+      showError('Connection failed');
+    }
+  }
 
   Future<void> disconnectDevice() async {
     if (connectedDevice != null) {
@@ -388,16 +397,17 @@ class ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> sendData(String command) async {
-    if (txCharacteristic == null || !isConnected) {
-      print('❌ Cannot send – Not connected or no TX characteristic');
+    if (rxCharacteristic == null || !isConnected) {
+      print('❌ Cannot send – Not connected or no RX characteristic');
       return;
     }
 
     List<int> bytes = command.codeUnits;
-    await txCharacteristic!.write(bytes, withoutResponse: false);
+    await rxCharacteristic!.write(bytes, withoutResponse: false);
 
     print('📤 Sent command: $command → bytes: $bytes');
   }
+
 
   void onButtonPressed(String button) {
     setState(() {
@@ -555,7 +565,7 @@ class ControllerPageState extends State<ControllerPage> {
                                   ),
                                   onTap: () {
                                     Navigator.pop(context);
-                                    // connectToDevice(device);
+                                    connectToDevice(device);
                                   },
                                 );
                               },
