@@ -422,12 +422,7 @@ class ControllerPageState extends State<ControllerPage> {
       _ => 'S',
     };
 
-    bool yIsOn = false;
-
-    if (command != 'S') {
-      sendData(command);
-    } else if (button == 'A') {
-      sendData('A');
+  sendData('A');
     } else if (button == 'B') {
       sendData('B');
     } else if (button == 'X') {
@@ -443,7 +438,12 @@ class ControllerPageState extends State<ControllerPage> {
       }
     }
   }
+    bool yIsOn = false;
 
+    if (command != 'S') {
+      sendData(command);
+    } else if (button == 'A') {
+    
   void onButtonReleased(String button) {
     setState(() {
       buttonStates[button] = false;
@@ -712,29 +712,26 @@ class ControllerPageState extends State<ControllerPage> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 40,
                         vertical: 30), // Padding yang lebih seimbang
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // Kiri: DPad
-                        Expanded(
-                          flex: 2,
-                          child: Center(
-                            child: DPadWidget(
-                              buttonStates: buttonStates,
-                              onButtonPressed: onButtonPressed,
-                              onButtonReleased: onButtonReleased,
+                        // Kiri: DPad - Lebih ke kiri
+                        Padding(
+                          padding: const EdgeInsets.only(left: 20),
+                          child: DPadWidget(
+                            buttonStates: buttonStates,
+                            onButtonPressed: onButtonPressed,
+                            onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
 
                         // Tengah: Speed Slider
-                        Expanded(
-                          flex: 1,
+                       Expanded(
                           child: Center(
                             child: Container(
-                              constraints: BoxConstraints(
-                                  maxWidth:
-                                      200), // Batasi lebar slider di tengah
+                              constraints: BoxConstraints(maxWidth: 200),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -751,8 +748,7 @@ class ControllerPageState extends State<ControllerPage> {
                                     data: SliderThemeData(
                                       activeTrackColor: Color(0xFF8B0000),
                                       inactiveTrackColor: Color(0xFFD3D3D3),
-                                      thumbColor: Color(
-                                          0xFF8B0000), // Ganti warna thumb menjadi merah
+                                      thumbColor: Color(0xFF8B0000),
                                       overlayColor:
                                           Color(0xFF8B0000).withOpacity(0.2),
                                       thumbShape: RoundSliderThumbShape(
@@ -760,12 +756,11 @@ class ControllerPageState extends State<ControllerPage> {
                                       ),
                                       trackHeight: 8.0,
                                     ),
-                                    child: Slider(
+                                   child: Slider(
                                       value: speedValue,
                                       min: 0,
                                       max: 100,
-                                      divisions:
-                                          100, // Tambahkan divisi untuk kontrol lebih baik
+                                      divisions: 100,
                                       label: speedValue.round().toString(),
                                       onChanged: (value) {
                                         setState(() {
@@ -776,7 +771,7 @@ class ControllerPageState extends State<ControllerPage> {
                                       },
                                     ),
                                   ),
-                                  Text(
+                                   Text(
                                     '${speedValue.round()}%',
                                     style: TextStyle(
                                       color: Colors.black54,
@@ -790,14 +785,13 @@ class ControllerPageState extends State<ControllerPage> {
                           ),
                         ),
 
-                        // Kanan: Action Buttons
-                        Expanded(
-                          flex: 2,
-                          child: Center(
-                            child: ActionButtonsWidget(
-                              buttonStates: buttonStates,
-                              onButtonPressed: onButtonPressed,
-                              onButtonReleased: onButtonReleased,
+                         // Kanan: Action Buttons - Lebih ke kanan
+                        Padding(
+                          padding: const EdgeInsets.only(right: 20),
+                          child: ActionButtonsWidget(
+                            buttonStates: buttonStates,
+                            onButtonPressed: onButtonPressed,
+                            onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
