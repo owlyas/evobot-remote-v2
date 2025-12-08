@@ -710,19 +710,18 @@ class ControllerPageState extends State<ControllerPage> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 40,
-                        vertical: 30), // Padding yang lebih seimbang
+                        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 30),
                      child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         // Kiri: DPad - Lebih ke kiri
                         Padding(
-                          padding: const EdgeInsets.only(left: 20),
-                          child: DPadWidget(
-                            buttonStates: buttonStates,
-                            onButtonPressed: onButtonPressed,
-                            onButtonReleased: onButtonReleased,
+                          padding: const EdgeInsets.only(left: 0), 
+              child: DPadWidget(
+                buttonStates: buttonStates,
+                onButtonPressed: onButtonPressed,
+                onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
@@ -786,12 +785,11 @@ class ControllerPageState extends State<ControllerPage> {
                         ),
 
                          // Kanan: Action Buttons - Lebih ke kanan
-                        Padding(
-                          padding: const EdgeInsets.only(right: 20),
-                          child: ActionButtonsWidget(
-                            buttonStates: buttonStates,
-                            onButtonPressed: onButtonPressed,
-                            onButtonReleased: onButtonReleased,
+                        padding: const EdgeInsets.only(right: 0), 
+              child: ActionButtonsWidget(
+                buttonStates: buttonStates,
+                onButtonPressed: onButtonPressed,
+                onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
