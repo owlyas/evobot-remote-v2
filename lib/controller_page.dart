@@ -422,7 +422,12 @@ class ControllerPageState extends State<ControllerPage> {
       _ => 'S',
     };
 
-  sendData('A');
+    bool yIsOn = false;
+
+    if (command != 'S') {
+      sendData(command);
+    } else if (button == 'A') {
+      sendData('A');
     } else if (button == 'B') {
       sendData('B');
     } else if (button == 'X') {
@@ -438,12 +443,7 @@ class ControllerPageState extends State<ControllerPage> {
       }
     }
   }
-    bool yIsOn = false;
 
-    if (command != 'S') {
-      sendData(command);
-    } else if (button == 'A') {
-    
   void onButtonReleased(String button) {
     setState(() {
       buttonStates[button] = false;
@@ -710,27 +710,34 @@ class ControllerPageState extends State<ControllerPage> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 30),
-                     child: Row(
+                        horizontal: 20,
+                        vertical: 30), // Padding yang lebih seimbang
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.center,
+
                       children: [
-                        // Kiri: DPad - Lebih ke kiri
-                        Padding(
-                          padding: const EdgeInsets.only(left: 0), 
-              child: DPadWidget(
-                buttonStates: buttonStates,
-                onButtonPressed: onButtonPressed,
-                onButtonReleased: onButtonReleased,
+                        // Kiri: DPad
+                        Expanded(
+                        flex: 2,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: DPadWidget(
+                            buttonStates: buttonStates,
+                            onButtonPressed: onButtonPressed,
+                            onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
 
                         // Tengah: Speed Slider
-                       Expanded(
+                        Expanded(
+                          flex: 1,
                           child: Center(
                             child: Container(
-                              constraints: BoxConstraints(maxWidth: 200),
+                              constraints: BoxConstraints(
+                                  maxWidth:
+                                      200), // Batasi lebar slider di tengah
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -747,7 +754,8 @@ class ControllerPageState extends State<ControllerPage> {
                                     data: SliderThemeData(
                                       activeTrackColor: Color(0xFF8B0000),
                                       inactiveTrackColor: Color(0xFFD3D3D3),
-                                      thumbColor: Color(0xFF8B0000),
+                                      thumbColor: Color(
+                                          0xFF8B0000), // Ganti warna thumb menjadi merah
                                       overlayColor:
                                           Color(0xFF8B0000).withOpacity(0.2),
                                       thumbShape: RoundSliderThumbShape(
@@ -755,11 +763,12 @@ class ControllerPageState extends State<ControllerPage> {
                                       ),
                                       trackHeight: 8.0,
                                     ),
-                                   child: Slider(
+                                    child: Slider(
                                       value: speedValue,
                                       min: 0,
                                       max: 100,
-                                      divisions: 100,
+                                      divisions:
+                                          100, // Tambahkan divisi untuk kontrol lebih baik
                                       label: speedValue.round().toString(),
                                       onChanged: (value) {
                                         setState(() {
@@ -770,7 +779,7 @@ class ControllerPageState extends State<ControllerPage> {
                                       },
                                     ),
                                   ),
-                                   Text(
+                                  Text(
                                     '${speedValue.round()}%',
                                     style: TextStyle(
                                       color: Colors.black54,
@@ -784,15 +793,21 @@ class ControllerPageState extends State<ControllerPage> {
                           ),
                         ),
 
-                         // Kanan: Action Buttons - Lebih ke kanan
-                        padding: const EdgeInsets.only(right: 0), 
-              child: ActionButtonsWidget(
-                buttonStates: buttonStates,
-                onButtonPressed: onButtonPressed,
-                onButtonReleased: onButtonReleased,
-                            ),
-                          ),
-                        ),
+                        // Kanan: Action Buttons
+                        
+                         
+                        Expanded(
+                          flex: 2,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: ActionButtonsWidget(
+                              buttonStates: buttonStates,
+                              onButtonPressed: onButtonPressed,
+                              onButtonReleased: onButtonReleased,
+                                                    ),
+                                                  
+                          )
+                        )
                       ],
                     ),
                   ),
