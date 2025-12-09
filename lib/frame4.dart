@@ -216,8 +216,8 @@ class Frame4State extends State<Frame4> {
                                           bottom: 23, left: 15, right: 15),
                                       height: 234,
                                       width: double.infinity,
-                                      child: Image.network(
-                                        "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/QqnPwzcS2b/whv0tbyx_expires_30_days.png",
+                                      child: Image.asset(
+                                        "img/mobile-robot.png",
                                         fit: BoxFit.fill,
                                         errorBuilder:
                                             (context, error, stackTrace) {
@@ -323,48 +323,7 @@ class Frame4State extends State<Frame4> {
                               ],
                             ),
                           ),
-                        ),
-
-                        // Premium Card
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: Color(0xFF282931),
-                          ),
-                          padding: const EdgeInsets.only(left: 27, right: 27),
-                          margin: const EdgeInsets.only(bottom: 69),
-                          width: double.infinity,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Container(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 54),
-                                child: Text(
-                                  "PREMIUM",
-                                  style: TextStyle(
-                                    color: Color(0xFFFFFFFF),
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                width: 35,
-                                height: 32,
-                                child: Image.network(
-                                  "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/QqnPwzcS2b/ea4k7vd7_expires_30_days.png",
-                                  fit: BoxFit.fill,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Icon(Icons.star,
-                                        color: Colors.amber);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        )
                       ],
                     ),
                   ),
