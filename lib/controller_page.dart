@@ -719,13 +719,13 @@ class ControllerPageState extends State<ControllerPage> {
                       children: [
                         // Kiri: DPad
                         Expanded(
-                        flex: 2,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: DPadWidget(
-                            buttonStates: buttonStates,
-                            onButtonPressed: onButtonPressed,
-                            onButtonReleased: onButtonReleased,
+                      flex: 2,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: DPadWidget(
+                          buttonStates: buttonStates,
+                          onButtonPressed: onButtonPressed,
+                          onButtonReleased: onButtonReleased,
                             ),
                           ),
                         ),
@@ -907,7 +907,7 @@ class DPadWidget extends StatelessWidget {
           // Perhitungan posisi disesuaikan agar tetap berada di dalam Stack 180x180
           Positioned(
             top: 5,
-            left: 70, // (180 - 40) / 2 = 70. 40 adalah lebar/tinggi DPadButton.
+            left: 55, // (180 - 40) / 2 = 70. 40 adalah lebar/tinggi DPadButton.
             child: DPadButton(
               icon: Icons.arrow_drop_up,
               isPressed: buttonStates['UP']!,
@@ -917,7 +917,7 @@ class DPadWidget extends StatelessWidget {
           ),
           Positioned(
             bottom: 5,
-            left: 70,
+            left: 55,
             child: DPadButton(
               icon: Icons.arrow_drop_down,
               isPressed: buttonStates['DOWN']!,
@@ -927,7 +927,7 @@ class DPadWidget extends StatelessWidget {
           ),
           Positioned(
             left: 5,
-            top: 70,
+            top: 55,
             child: DPadButton(
               icon: Icons.arrow_left,
               isPressed: buttonStates['LEFT']!,
@@ -937,7 +937,7 @@ class DPadWidget extends StatelessWidget {
           ),
           Positioned(
             right: 5,
-            top: 70,
+            top: 55,
             child: DPadButton(
               icon: Icons.arrow_right,
               isPressed: buttonStates['RIGHT']!,
@@ -1025,23 +1025,29 @@ class DPadButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+
+            behavior: HitTestBehavior.opaque, 
       onTapDown: (_) => onPressed(),
       onTapUp: (_) => onReleased(),
       onTapCancel: onReleased,
       child: Container(
-        width: size,
-        height: size,
+        width: 70,
+        height: 70,
+                        alignment: Alignment.center,   // pastikan icon benar-benar center
+
         decoration: BoxDecoration(
           color: isPressed ? Colors.white.withOpacity(0.3) : Colors.transparent,
           // Menggunakan BoxShape.circle untuk membuat bagian interaksi lebih intuitif
           shape: BoxShape.circle,
         ),
+
         child: Icon(
           icon,
           color: Colors.white,
           size: 36,
         ),
       ),
+      
     );
   }
 }
