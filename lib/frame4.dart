@@ -15,18 +15,18 @@ class Frame4State extends State<Frame4> {
       context: context,
       barrierDismissible: true,
       // Menggunakan warna latar gelap transparan sesuai referensi Frame334 (0xB00F1728)
-      barrierColor: Color(0xB00F1728),
+      barrierColor: const Color(0xB00F1728),
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor:
               Colors.transparent, // Transparan agar bisa pakai Container custom
           insetPadding:
-              EdgeInsets.symmetric(horizontal: 16), // Jarak kiri-kanan
+              const EdgeInsets.symmetric(horizontal: 16), // Jarak kiri-kanan
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: Color(0xFFFFFFFF),
-              boxShadow: [
+              color: const Color(0xFFFFFFFF),
+              boxShadow: const [
                 BoxShadow(
                   color: Color(0x050A0C12),
                   blurRadius: 8,
@@ -42,7 +42,7 @@ class Frame4State extends State<Frame4> {
                 // 1. JUDUL POP UP
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
-                  child: Text(
+                  child: const Text(
                     "Manual Penggunaan Aplikasi",
                     style: TextStyle(
                       color: Color(0xFF181D27),
@@ -62,13 +62,13 @@ class Frame4State extends State<Frame4> {
                       children: [
                         _buildStyledTextSection("1. Koneksi (Pairing)",
                             "Pastikan Bluetooth & GPS aktif. Masuk ke menu Controller, tekan tombol 'Scan' dan pilih robot EVOBOT."),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         _buildStyledTextSection("2. Pergerakan",
                             "Gunakan D-Pad di kiri layar untuk menggerakkan robot Maju (F), Mundur (B), Kiri (L), dan Kanan (R)."),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         _buildStyledTextSection("3. Kecepatan",
                             "Geser Slider di tengah layar untuk mengatur kecepatan motor (PWM) dari 0% hingga 100%."),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         _buildStyledTextSection("4. Fitur Lain",
                             "Tombol X, Y, A, B dapat digunakan untuk fungsi khusus. Tombol Y di-set sebagai Toggle Switch."),
                       ],
@@ -84,12 +84,12 @@ class Frame4State extends State<Frame4> {
                   child: Container(
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: Color(0xFFD5D6DA),
+                        color: const Color(0xFFD5D6DA),
                         width: 1,
                       ),
                       borderRadius: BorderRadius.circular(8),
-                      color: Color(0xFFFFFFFF),
-                      boxShadow: [
+                      color: const Color(0xFFFFFFFF),
+                      boxShadow: const [
                         BoxShadow(
                           color: Color(0x0D0A0C12),
                           blurRadius: 2,
@@ -100,7 +100,7 @@ class Frame4State extends State<Frame4> {
                     padding: const EdgeInsets.symmetric(vertical: 9),
                     margin: const EdgeInsets.symmetric(horizontal: 16),
                     width: double.infinity,
-                    child: Column(
+                    child: const Column(
                       children: [
                         Text(
                           "Close",
@@ -126,7 +126,7 @@ class Frame4State extends State<Frame4> {
   Widget _buildStyledTextSection(String title, String content) {
     return RichText(
       text: TextSpan(
-        style: TextStyle(
+        style: const TextStyle(
           color: Color(0xFF535862), // Warna teks sesuai referensi
           fontSize: 14,
           height: 1.5,
@@ -135,7 +135,7 @@ class Frame4State extends State<Frame4> {
         children: [
           TextSpan(
             text: "$title\n",
-            style: TextStyle(
+            style: const TextStyle(
                 fontWeight: FontWeight.bold, color: Color(0xFF181D27)),
           ),
           TextSpan(text: content),
@@ -150,13 +150,13 @@ class Frame4State extends State<Frame4> {
       body: SafeArea(
         child: Container(
           constraints: const BoxConstraints.expand(),
-          color: Color(0xFFFFFFFF),
+          color: const Color(0xFFFFFFFF),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Container(
-                  color: Color(0xFFF2F3F6),
+                  color: const Color(0xFFF2F3F6),
                   width: double.infinity,
                   height: double.infinity,
                   child: SingleChildScrollView(
@@ -168,11 +168,11 @@ class Frame4State extends State<Frame4> {
                         Container(
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: Color(0xFFEAECF0),
+                              color: const Color(0xFFEAECF0),
                               width: 1,
                             ),
                             borderRadius: BorderRadius.circular(20),
-                            color: Color(0xFFF8F9FB),
+                            color: const Color(0xFFF8F9FB),
                           ),
                           padding: const EdgeInsets.only(right: 25),
                           margin: const EdgeInsets.only(top: 32, bottom: 54),
@@ -183,7 +183,7 @@ class Frame4State extends State<Frame4> {
                               Container(
                                 margin: const EdgeInsets.only(
                                     top: 51, bottom: 13, left: 26),
-                                child: Text(
+                                child: const Text(
                                   "EVOBOT",
                                   style: TextStyle(
                                     color: Color(0xFF000000),
@@ -195,7 +195,7 @@ class Frame4State extends State<Frame4> {
                               Container(
                                 margin:
                                     const EdgeInsets.only(bottom: 6, left: 24),
-                                child: Text(
+                                child: const Text(
                                   "EVOLVING ROBOT",
                                   style: TextStyle(
                                     color: Color(0xFF000000),
@@ -223,7 +223,7 @@ class Frame4State extends State<Frame4> {
                                             (context, error, stackTrace) {
                                           return Container(
                                             color: Colors.grey[300],
-                                            child: Icon(Icons.image, size: 100),
+                                            child: const Icon(Icons.image, size: 100),
                                           );
                                         },
                                       ),
@@ -235,20 +235,20 @@ class Frame4State extends State<Frame4> {
                                           context,
                                           MaterialPageRoute(
                                             builder: (context) =>
-                                                ControllerPage(),
+                                                const ControllerPage(),
                                           ),
                                         );
                                       },
                                       child: Container(
                                         decoration: BoxDecoration(
                                           border: Border.all(
-                                            color: Color(0xFFD5D6DA),
+                                            color: const Color(0xFFD5D6DA),
                                             width: 1,
                                           ),
                                           borderRadius:
                                               BorderRadius.circular(12),
-                                          color: Color(0xFF9A0000),
-                                          boxShadow: [
+                                          color: const Color(0xFF9A0000),
+                                          boxShadow: const [
                                             BoxShadow(
                                               color: Color(0x0D0A0C12),
                                               blurRadius: 2,
@@ -259,7 +259,7 @@ class Frame4State extends State<Frame4> {
                                         padding: const EdgeInsets.symmetric(
                                             vertical: 16),
                                         width: double.infinity,
-                                        child: Center(
+                                        child: const Center(
                                           child: Text(
                                             "START CONTROL",
                                             style: TextStyle(
@@ -287,7 +287,7 @@ class Frame4State extends State<Frame4> {
                           child: Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
-                              color: Color(0xFF282931),
+                              color: const Color(0xFF282931),
                             ),
                             padding: const EdgeInsets.only(left: 27, right: 27),
                             margin: const EdgeInsets.only(bottom: 9),
@@ -299,7 +299,7 @@ class Frame4State extends State<Frame4> {
                                 Container(
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 54),
-                                  child: Text(
+                                  child: const Text(
                                     "Manual Book",
                                     style: TextStyle(
                                       color: Color(0xFFFFFFFF),
@@ -308,14 +308,14 @@ class Frame4State extends State<Frame4> {
                                     ),
                                   ),
                                 ),
-                                Container(
+                                SizedBox(
                                   width: 35,
                                   height: 32,
                                   child: Image.network(
                                     "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/QqnPwzcS2b/wvhtqmx6_expires_30_days.png",
                                     fit: BoxFit.fill,
                                     errorBuilder: (context, error, stackTrace) {
-                                      return Icon(Icons.book,
+                                      return const Icon(Icons.book,
                                           color: Colors.white);
                                     },
                                   ),
@@ -329,7 +329,7 @@ class Frame4State extends State<Frame4> {
                         Container(
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(12),
-                            color: Color(0xFF282931),
+                            color: const Color(0xFF282931),
                           ),
                           padding: const EdgeInsets.only(left: 27, right: 27),
                           margin: const EdgeInsets.only(bottom: 69),
@@ -341,7 +341,7 @@ class Frame4State extends State<Frame4> {
                               Container(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 54),
-                                child: Text(
+                                child: const Text(
                                   "PREMIUM",
                                   style: TextStyle(
                                     color: Color(0xFFFFFFFF),
@@ -350,14 +350,14 @@ class Frame4State extends State<Frame4> {
                                   ),
                                 ),
                               ),
-                              Container(
+                              SizedBox(
                                 width: 35,
                                 height: 32,
                                 child: Image.network(
                                   "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/QqnPwzcS2b/ea4k7vd7_expires_30_days.png",
                                   fit: BoxFit.fill,
                                   errorBuilder: (context, error, stackTrace) {
-                                    return Icon(Icons.star,
+                                    return const Icon(Icons.star,
                                         color: Colors.amber);
                                   },
                                 ),
