@@ -340,52 +340,46 @@ class ControllerPageState extends State<ControllerPage> {
   // Bluetooth scanning (with permissions & safe timer)
   // -------------------------
   Future<void> startScan() async {
-    // Request location permission for BLE scan on Android
-    final status = await Permission.locationWhenInUse.request();
-    if (!status.isGranted) {
-      showError('Location permission is required for Bluetooth scanning.');
+    // Request ALL Android 12+ permissions
+    final scanPerm = await Permission.bluetoothScan.request();
+    final connectPerm = await Permission.bluetoothConnect.request();
+    final locPerm = await Permission.locationWhenInUse.request();
+
+    if (!scanPerm.isGranted || !connectPerm.isGranted || !locPerm.isGranted) {
+      showError('Bluetooth & Location permissions are required.');
       return;
     }
 
-    // Prevent double start
     if (isScanning) return;
 
     setStateIfMounted(() {
       isScanning = true;
       scanResults = [];
     });
-
-    // Cancel any previous subscription
+    // Cancel any existing subscription
     scanSubscription?.cancel();
-
     // Start scanning
     try {
-      // Ensure any previous scan is stopped first
       await FlutterBluePlus.stopScan().catchError((_) {});
+
       await FlutterBluePlus.startScan(
         timeout: Duration(seconds: _scanTimeoutSec),
-        androidUsesFineLocation: true,
+        androidUsesFineLocation: false, // IMPORTANT FIX
       );
 
-      // Subscribe to scan results and throttle UI updates
       scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         final now = DateTime.now();
         if (now.difference(_lastScanUpdate) >= _scanUpdateInterval) {
           _lastScanUpdate = now;
-          setStateIfMounted(() {
-            scanResults = results;
-          });
+          setStateIfMounted(() => scanResults = results);
         } else {
-          // still update internal list so we always have latest for tapping,
-          // but avoid calling setState too often
           scanResults = results;
         }
       });
 
-      // Also set a stop timer as a safeguard (in case plugin timeout behaves differently)
       stopTimer?.cancel();
       stopTimer = Timer(Duration(seconds: _scanTimeoutSec), () async {
-        await stopScan().catchError((_) {});
+        await stopScan();
       });
     } catch (e) {
       print('Error starting BLE scan: $e');
@@ -418,47 +412,73 @@ class ControllerPageState extends State<ControllerPage> {
   // Connect / disconnect device (with connection subscription)
   // -------------------------
   Future<bool> connectToDevice(BluetoothDevice device) async {
+    const int connectionTimeoutSec = 5; // Max time to try connecting
     try {
-      connectionSubscription?.cancel();
+      // Cancel any previous connection subscription
+      await connectionSubscription?.cancel();
       connectionSubscription = null;
 
-      await device.connect(timeout: const Duration(seconds: _scanTimeoutSec)).catchError((e) {
-        print('connect() warning: $e');
+      // Stop scanning to avoid Android connection delays
+      if (FlutterBluePlus.isScanningNow) {
+        await FlutterBluePlus.stopScan().catchError((_) {});
+      }
+
+      // Connect with timeout
+      await device.connect(
+        timeout: const Duration(seconds: connectionTimeoutSec),
+        autoConnect: false,
+      ).catchError((e) {
+        print('⚠️ connect() warning: $e');
       });
 
+      // Set as connected
       connectedDevice = device;
       setStateIfMounted(() {
         isConnected = true;
       });
 
       print('✅ Connected! Discovering services...');
-      List<BluetoothService> services = await device.discoverServices();
 
+      // Discover services with timeout safeguard
+      List<BluetoothService> services = await device.discoverServices().timeout(
+        const Duration(seconds: connectionTimeoutSec),
+        onTimeout: () {
+          print('⚠️ Service discovery timeout');
+          return <BluetoothService>[];
+        },
+      );
+
+      // Loop through services to find target service and characteristics
       for (BluetoothService service in services) {
         if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
-          // Found our target service
           print('✅ Target service found. Looking for characteristics...');
           for (BluetoothCharacteristic c in service.characteristics) {
-            //rx = phone → device
-            if (c.uuid.toString().toLowerCase() == rxCharUUID) {
+            final charUuid = c.uuid.toString().toLowerCase();
+            if (charUuid == rxCharUUID) {
               rxCharacteristic = c;
               print('✅ RX Characteristic found');
             }
-            //tx = device → phone
-            if (c.uuid.toString().toLowerCase() == txCharUUID) {
+            if (charUuid == txCharUUID) {
               txCharacteristic = c;
               await c.setNotifyValue(true);
+              print('✅ TX Characteristic notifications enabled');
             }
           }
         }
       }
 
-      return true;   // <--- SUCCESS
-
+      return true; // Success
     } catch (e) {
+      // Cleanup if connection fails
+      try {
+        await device.disconnect();
+      } catch (_) {}
+      connectedDevice = null;
+      setStateIfMounted(() => isConnected = false);
+
       print('❌ Error connecting: $e');
       showError('Connection failed: $e');
-      return false;  // <--- FAILED
+      return false;
     }
   }
 
@@ -702,39 +722,38 @@ class ControllerPageState extends State<ControllerPage> {
                                   subtitle: Text(device.remoteId.toString()),
                                   trailing: Text('${result.rssi} dBm', style: TextStyle(color: Colors.grey[700])),
                                   onTap: () async {
-                                    // When tapped: show connecting spinner dialog, attempt connect, then close
-                                    Navigator.pop(context); // close devices list dialog first
-                                    // Cancel dialog timer (it belonged to the list dialog)
+                                    // Cancel dialog scan timer
                                     _dialogStopScanTimer?.cancel();
-                                    // Show connecting dialog
-                                    showDialog(
-                                      context: context,
-                                      barrierDismissible: false,
-                                      builder: (context) {
-                                        return AlertDialog(
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                          content: Padding(
-                                            padding: const EdgeInsets.all(16.0),
-                                            child: Row(
-                                              children: [
-                                                CircularProgressIndicator(),
-                                                SizedBox(width: 16),
-                                                Expanded(child: Text('Connecting to ${device.platformName}...')),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    );
 
-                                    final bool ok = await connectToDevice(device);
-                                    // close connecting dialog
-                                    if (mounted) Navigator.pop(context);
-                                    if (ok) {
-                                      showSuccess('Connected to ${device.platformName}');
-                                    } else {
-                                      showError('Failed to connect to ${device.platformName}');
+                                    final deviceName = device.platformName;
+
+                                    // Optional: show connecting spinner
+                                    if (mounted) {
+                                      showDialog(
+                                        context: context,
+                                        barrierDismissible: false,
+                                        builder: (_) => AlertDialog(
+                                          content: Row(
+                                            children: [
+                                              CircularProgressIndicator(),
+                                              SizedBox(width: 16),
+                                              Expanded(child: Text('Connecting to $deviceName...')),
+                                            ],
+                                          ),
+                                        ),
+                                      );
                                     }
+
+                                    // Connect to the device
+                                    final bool ok = await connectToDevice(device);
+
+                                    // Close spinner safely
+                                    if (mounted) Navigator.of(context).pop();
+
+                                    // Show result
+                                    if (!mounted) return;
+                                    if (ok) showSuccess('Connected to $deviceName');
+                                    else showError('Failed to connect to $deviceName');
                                   },
                                 );
                               },
@@ -809,9 +828,9 @@ class ControllerPageState extends State<ControllerPage> {
     });
 
     if (buttonStates[key] == true) {
-      sendData("${key}on");   // Example: Yon
+      sendData("${key}isON");   // Example: Yon
     } else {
-      sendData("${key}off");  // Example: Yoff
+      sendData("${key}isOFF");  // Example: Yoff
     }
   }
 
@@ -1002,11 +1021,14 @@ class ControllerPageState extends State<ControllerPage> {
 
     Widget _buildToggleSwitch() {
       return GestureDetector(
-        onTap: () {
+        onTap: () async {
           if (isConnected) {
-            disconnectDevice();
+            await disconnectDevice();   // disconnect
+            setState(() {
+              isConnected = false;      // make UI turn gray
+            });
           } else {
-            showBluetoothDialog();
+            showBluetoothDialog();      // connect flow
           }
         },
         child: Container(
@@ -1014,12 +1036,14 @@ class ControllerPageState extends State<ControllerPage> {
           height: 34,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            color: isConnected ? Color(0xFF34C759) : Color(0xFF8E8E93),
+            color: isConnected ? Color(0xFF34C759) : Color(0xFF8E8E93), // green/gray
           ),
           padding: const EdgeInsets.all(3),
           child: AnimatedAlign(
             duration: Duration(milliseconds: 200),
-            alignment: isConnected ? Alignment.centerRight : Alignment.centerLeft,
+            alignment: isConnected
+                ? Alignment.centerRight
+                : Alignment.centerLeft,
             child: Container(
               width: 28,
               height: 28,
@@ -1028,9 +1052,9 @@ class ControllerPageState extends State<ControllerPage> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: Offset(0, 2),
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: Offset(0, 2),
                   ),
                 ],
               ),
