@@ -216,8 +216,8 @@ class Frame4State extends State<Frame4> {
                                           bottom: 23, left: 15, right: 15),
                                       height: 234,
                                       width: double.infinity,
-                                      child: Image.network(
-                                        "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/QqnPwzcS2b/whv0tbyx_expires_30_days.png",
+                                      child: Image.asset(
+                                        "img/mobile-robot.png",
                                         fit: BoxFit.fill,
                                         errorBuilder:
                                             (context, error, stackTrace) {
@@ -323,6 +323,7 @@ class Frame4State extends State<Frame4> {
                               ],
                             ),
                           ),
+<<<<<<< HEAD
                         ),
 
                         // Premium Card
@@ -365,6 +366,9 @@ class Frame4State extends State<Frame4> {
                             ],
                           ),
                         ),
+=======
+                        )
+>>>>>>> 25cb152116119672ac1699bbf62a8ed7711d1cf3
                       ],
                     ),
                   ),
