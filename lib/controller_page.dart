@@ -52,7 +52,7 @@ class ControllerPageState extends State<ControllerPage> {
   static const Duration _scanUpdateInterval = Duration(milliseconds: 300);
 
   // Default scan timeout (seconds)
-  static const int _scanTimeoutSec = 10;
+  static const int _scanTimeoutSec = 5;
 
   // Reconnect/backoff config
   int _reconnectAttempts = 0;
@@ -1236,6 +1236,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'X',
               isOn: buttonStates['X']!,
+              isLocked: true,
               onToggle: () => onToggle('X'),
             ),
           ),
@@ -1247,6 +1248,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'Y',
               isOn: buttonStates['Y']!,
+              isLocked: false,
               onToggle: () => onToggle('Y'),
             ),
           ),
@@ -1258,6 +1260,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'A',
               isOn: buttonStates['A']!,
+              isLocked: true,
               onToggle: () => onToggle('A'),
             ),
           ),
@@ -1269,6 +1272,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'B',
               isOn: buttonStates['B']!,
+              isLocked: true,
               onToggle: () => onToggle('B'),
             ),
           ),
@@ -1283,13 +1287,14 @@ class ActionButton extends StatelessWidget {
   final String label;
   final bool isOn;                     // <-- toggle state
   final VoidCallback onToggle;         // <-- toggle callback
-
+  final bool isLocked;                 // <-- if true, button is not toggleable
   final double size = 60.0;
 
   const ActionButton({
     super.key,
     required this.label,
     required this.isOn,
+    required this.isLocked,
     required this.onToggle,
   });
 
@@ -1358,7 +1363,7 @@ class ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onToggle,       // <-- One tap toggles ON/OFF
+      onTap: isLocked ? null : onToggle, // 🔒 disable when locked
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
 
@@ -1366,20 +1371,42 @@ class ActionButton extends StatelessWidget {
         height: size,
 
         decoration: BoxDecoration(
-          color: isOn ? Colors.green.withOpacity(0.25) : Colors.grey.withOpacity(0.2),
+          color: isLocked
+              ? Colors.grey.withOpacity(0.15)
+              : isOn
+                  ? Colors.green.withOpacity(0.25)
+                  : Colors.grey.withOpacity(0.2),
           shape: BoxShape.circle,
           border: Border.all(
-            color: isOn ? Colors.green : Colors.grey,
+            color: isLocked
+                ? Colors.grey
+                : isOn
+                    ? Colors.green
+                    : Colors.grey,
             width: 3,
           ),
         ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // SVG Icon
+            Opacity(
+              opacity: isLocked ? 0.4 : 1.0,
+              child: SvgPicture.string(
+                _getSvgIcon(label),
+                width: label == 'Y' ? 30 : 28,
+                height: label == 'Y' ? 30 : 28,
+              ),
+            ),
 
-        child: Center(
-          child: SvgPicture.string(
-            _getSvgIcon(label),
-            width: label == 'Y' ? 30 : 28,
-            height: label == 'Y' ? 30 : 28,
-          ),
+            // 🔒 Lock overlay
+            if (isLocked)
+              const Icon(
+                Icons.lock,
+                size: 18,
+                color: Colors.grey,
+              ),
+          ],
         ),
       ),
     );
