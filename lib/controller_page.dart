@@ -893,7 +893,7 @@ class ControllerPageState extends State<ControllerPage> {
                         flex: 3,
                         child: Center(
                           child: AspectRatio(
-                            aspectRatio: 3 / 4,
+                            aspectRatio: 4 / 3,
                             child: Container(
                               width: double.infinity,
                               decoration: BoxDecoration(
