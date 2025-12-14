@@ -25,6 +25,8 @@ class ControllerPageState extends State<ControllerPage> {
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? txCharacteristic;
   BluetoothCharacteristic? rxCharacteristic;
+  StreamSubscription<List<int>>? txSubscription;
+  Completer<String>? _responseCompleter;
   bool isWifiScanning = false;
   List<WifiNetwork> wifiNetworks = [];
   Timer? stopTimer;
@@ -419,12 +421,17 @@ class ControllerPageState extends State<ControllerPage> {
   // -------------------------
   Future<bool> connectToDevice(BluetoothDevice device) async {
     try {
-      connectionSubscription?.cancel();
-      connectionSubscription = null;
+      // Clean previous state
+      await txSubscription?.cancel();
+      txSubscription = null;
+      rxCharacteristic = null;
+      txCharacteristic = null;
 
-      await device.connect(timeout: const Duration(seconds: _scanTimeoutSec)).catchError((e) {
-        print('connect() warning: $e');
-      });
+      // Connect
+      await device.connect(
+        timeout: Duration(seconds: _scanTimeoutSec),
+        autoConnect: false,
+      );
 
       connectedDevice = device;
       setStateIfMounted(() {
@@ -432,33 +439,58 @@ class ControllerPageState extends State<ControllerPage> {
       });
 
       print('✅ Connected! Discovering services...');
-      List<BluetoothService> services = await device.discoverServices();
+      final services = await device.discoverServices();
 
-      for (BluetoothService service in services) {
+      for (final service in services) {
         if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
-          // Found our target service
-          print('✅ Target service found. Looking for characteristics...');
-          for (BluetoothCharacteristic c in service.characteristics) {
-            //rx = phone → device
+          print('✅ Target service found');
+
+          for (final c in service.characteristics) {
+            // RX = phone → device
             if (c.uuid.toString().toLowerCase() == rxCharUUID) {
               rxCharacteristic = c;
               print('✅ RX Characteristic found');
             }
-            //tx = device → phone
+
+            // TX = device → phone
             if (c.uuid.toString().toLowerCase() == txCharUUID) {
               txCharacteristic = c;
+
               await c.setNotifyValue(true);
+
+              // 🔔 LISTEN to notifications
+              txSubscription = c.value.listen((value) {
+                final response = String.fromCharCodes(value).trim();
+                print('📥 TX received: $response');
+
+                // Complete waiting command if any
+                if (_responseCompleter != null &&
+                    !_responseCompleter!.isCompleted) {
+                  _responseCompleter!.complete(response);
+                }
+              });
+
+              print('✅ TX Characteristic found & listening');
             }
           }
         }
       }
 
-      return true;   // <--- SUCCESS
+      // ❗ Validate required characteristics
+      if (rxCharacteristic == null || txCharacteristic == null) {
+        throw Exception('Required BLE characteristics not found');
+      }
+
+      return true;
 
     } catch (e) {
       print('❌ Error connecting: $e');
       showError('Connection failed: $e');
-      return false;  // <--- FAILED
+
+      await txSubscription?.cancel();
+      txSubscription = null;
+
+      return false;
     }
   }
 
@@ -524,19 +556,63 @@ class ControllerPageState extends State<ControllerPage> {
   // Send data safely
   // -------------------------
   Future<void> sendData(String command) async {
-    if (rxCharacteristic == null || !isConnected) {
-      print('❌ Cannot send – Not connected or no RX characteristic');
+    if (rxCharacteristic == null ||
+        txCharacteristic == null ||
+        !isConnected) {
+      print('❌ Cannot send – not connected');
       return;
     }
 
+    // 🚗 Continuous movement commands (NO CHECK, NO WAIT)
+    const moveCommands = {'F', 'B', 'L', 'R', 'S'};
+
+    if (moveCommands.contains(command)) {
+      try {
+        await rxCharacteristic!.write(
+          command.codeUnits,
+          withoutResponse: true, // FAST & continuous
+        );
+        print('🚗 Sent move: $command');
+      } catch (e) {
+        print('❌ Move send error: $e');
+      }
+      return; // ⬅ EXIT (no validation)
+    }
+
+    // 🔐 Control commands (WAIT FOR OK)
+    final completer = Completer<void>();
+
+    late StreamSubscription<List<int>> subscription;
+    subscription = txCharacteristic!.value.listen((value) {
+      final response = String.fromCharCodes(value).trim();
+      print('📥 TX received: $response');
+
+      if (response == 'OK' && !completer.isCompleted) {
+        completer.complete();
+      }
+    });
+
     try {
-      List<int> bytes = command.codeUnits;
-      // if the characteristic supports withoutResponse you can change the flag
-      await rxCharacteristic!.write(bytes, withoutResponse: false);
-      print('📤 Sent command: $command → bytes: $bytes');
+      await rxCharacteristic!.write(
+        command.codeUnits,
+        withoutResponse: false,
+      );
+      print('📤 Sent command: $command');
+
+      // Wait for OK
+      await completer.future.timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          throw Exception('No OK response');
+        },
+      );
+
+      print('✅ Command acknowledged');
     } catch (e) {
-      print('Error sending data: $e');
-      showError('Failed to send command: $e');
+      print('❌ Command failed: $e');
+      showError('Device did not acknowledge command');
+    } finally {
+      await subscription.cancel();
     }
   }
   
@@ -553,26 +629,26 @@ class ControllerPageState extends State<ControllerPage> {
       _ => 'S',
     };
 
-    bool yIsOn = false;
+    // bool yIsOn = false;
 
-    if (command != 'S') {
-      sendData(command);
-    } else if (button == 'A') {
-      sendData('A');
-    } else if (button == 'B') {
-      sendData('B');
-    } else if (button == 'X') {
-      sendData('X');
-    } else if (button == 'Y') {
-      sendData('Y');
-    } else if (button == 'Y') {
-       yIsOn = !yIsOn;   
-       if (yIsOn) {
-        sendData('YisON');   
-      } else {
-        sendData('YisOFF');  
-      }
-    }
+    // if (command != 'S') {
+    //   sendData(command);
+    // } else if (button == 'A') {
+    //   sendData('A');
+    // } else if (button == 'B') {
+    //   sendData('B');
+    // } else if (button == 'X') {
+    //   sendData('X');
+    // } else if (button == 'Y') {
+    //   sendData('Y');
+    // } else if (button == 'Y') {
+    //    yIsOn = !yIsOn;   
+    //    if (yIsOn) {
+    //     sendData('YisON');   
+    //   } else {
+    //     sendData('YisOFF');
+    //   }
+    // }
   }
 
   void onButtonReleased(String button) {
@@ -702,15 +778,22 @@ class ControllerPageState extends State<ControllerPage> {
                                   subtitle: Text(device.remoteId.toString()),
                                   trailing: Text('${result.rssi} dBm', style: TextStyle(color: Colors.grey[700])),
                                   onTap: () async {
-                                    // When tapped: show connecting spinner dialog, attempt connect, then close
-                                    Navigator.pop(context); // close devices list dialog first
-                                    // Cancel dialog timer (it belonged to the list dialog)
+                                    // 1️⃣ Close the device list dialog safely
+                                    final listDialogContext = context;
+                                    if (Navigator.canPop(listDialogContext)) {
+                                      Navigator.pop(listDialogContext);
+                                    }
+
                                     _dialogStopScanTimer?.cancel();
-                                    // Show connecting dialog
+
+                                    // 2️⃣ Show "connecting" dialog and CAPTURE ITS CONTEXT
+                                    late BuildContext connectingDialogContext;
+
                                     showDialog(
-                                      context: context,
+                                      context: this.context, // PAGE context, not dialog context
                                       barrierDismissible: false,
-                                      builder: (context) {
+                                      builder: (ctx) {
+                                        connectingDialogContext = ctx;
                                         return AlertDialog(
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                           content: Padding(
@@ -719,7 +802,9 @@ class ControllerPageState extends State<ControllerPage> {
                                               children: [
                                                 CircularProgressIndicator(),
                                                 SizedBox(width: 16),
-                                                Expanded(child: Text('Connecting to ${device.platformName}...')),
+                                                Expanded(
+                                                  child: Text('Connecting to ${device.platformName}...'),
+                                                ),
                                               ],
                                             ),
                                           ),
@@ -727,15 +812,24 @@ class ControllerPageState extends State<ControllerPage> {
                                       },
                                     );
 
+                                    // 3️⃣ Attempt BLE connection
                                     final bool ok = await connectToDevice(device);
-                                    // close connecting dialog
-                                    if (mounted) Navigator.pop(context);
+
+                                    // 4️⃣ Close connecting dialog SAFELY
+                                    if (mounted && Navigator.canPop(connectingDialogContext)) {
+                                      Navigator.pop(connectingDialogContext);
+                                    }
+
+                                    if (!mounted) return;
+
+                                    // 5️⃣ Show result
                                     if (ok) {
                                       showSuccess('Connected to ${device.platformName}');
                                     } else {
                                       showError('Failed to connect to ${device.platformName}');
                                     }
                                   },
+
                                 );
                               },
                             ),
@@ -813,6 +907,43 @@ class ControllerPageState extends State<ControllerPage> {
     } else {
       sendData("${key}off");  // Example: Yoff
     }
+  }
+  
+  void showVoiceDialog() {
+    showDialog(
+      context: context, // 👈 use State context
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Play Voice"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text("Voice 1"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("VOICE_1");
+                },
+              ),
+              ListTile(
+                title: const Text("Voice 2"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("VOICE_2");
+                },
+              ),
+              ListTile(
+                title: const Text("Stop"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("STOP");
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -958,7 +1089,7 @@ class ControllerPageState extends State<ControllerPage> {
                         ),
 
                         // Kanan: Action Buttons
-                        
+
                          
                         Expanded(
                           flex: 2,
@@ -966,6 +1097,7 @@ class ControllerPageState extends State<ControllerPage> {
                             child: ActionButtonsWidget(
                               buttonStates: buttonStates,
                               onToggle: onToggle,
+                              onVoicePressed: showVoiceDialog,
                             ),
                           ),
                         ),
@@ -978,6 +1110,19 @@ class ControllerPageState extends State<ControllerPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _soundTile(BuildContext context, String title, String command) {
+    return ListTile(
+      leading: const Icon(Icons.play_arrow, color: Colors.blueAccent),
+      title: Text(title),
+      trailing: const Icon(Icons.volume_up),
+      onTap: () async {
+        Navigator.pop(context);
+
+        await sendData(command); // 🔥 uses your existing logic
+      },
     );
   }
 
@@ -1216,10 +1361,12 @@ class DPadButton extends StatelessWidget {
 class ActionButtonsWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
   final Function(String) onToggle;   // <-- NEW: toggle function
+  final VoidCallback onVoicePressed; 
 
   const ActionButtonsWidget({
     required this.buttonStates,
     required this.onToggle,
+    required this.onVoicePressed,
   });
 
   @override
@@ -1271,9 +1418,9 @@ class ActionButtonsWidget extends StatelessWidget {
             left: 60,
             child: ActionButton(
               label: 'B',
-              isOn: buttonStates['B']!,
-              isLocked: true,
-              onToggle: () => onToggle('B'),
+              isOn: false,
+              isLocked: false,
+              onToggle: onVoicePressed, // 👈 CALL DIALOG
             ),
           ),
         ],
