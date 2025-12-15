@@ -3,10 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
+import 'dart:io';
+// import 'package:device_info_plus/device_info_plus.dart';
 import 'package:get/get.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // <--- WAJIB ADA INI
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -21,14 +22,13 @@ class ControllerPage extends StatefulWidget {
 }
 
 class ControllerPageState extends State<ControllerPage> {
-
-  String streamUrl = "http://192.168.4.1:81/stream"; 
-  bool isVideoRunning = true;
   bool isConnected = false;
   bool isScanning = false;
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? txCharacteristic;
   BluetoothCharacteristic? rxCharacteristic;
+  StreamSubscription<List<int>>? txSubscription;
+  Completer<String>? _responseCompleter;
   bool isWifiScanning = false;
   List<WifiNetwork> wifiNetworks = [];
   Timer? stopTimer;
@@ -37,6 +37,8 @@ class ControllerPageState extends State<ControllerPage> {
   List<ScanResult> scanResults = [];
   StreamSubscription<List<ScanResult>>? scanSubscription;
   StreamSubscription<BluetoothConnectionState>? connectionSubscription;
+  String? _lastErrorMessage;
+  DateTime? _lastErrorTime;
 
   Map<String, bool> buttonStates = {
     'UP': false,
@@ -56,7 +58,7 @@ class ControllerPageState extends State<ControllerPage> {
   static const Duration _scanUpdateInterval = Duration(milliseconds: 300);
 
   // Default scan timeout (seconds)
-  static const int _scanTimeoutSec = 10;
+  static const int _scanTimeoutSec = 3;
 
   // Reconnect/backoff config
   int _reconnectAttempts = 0;
@@ -423,12 +425,17 @@ class ControllerPageState extends State<ControllerPage> {
   // -------------------------
   Future<bool> connectToDevice(BluetoothDevice device) async {
     try {
-      connectionSubscription?.cancel();
-      connectionSubscription = null;
+      // Clean previous state
+      await txSubscription?.cancel();
+      txSubscription = null;
+      rxCharacteristic = null;
+      txCharacteristic = null;
 
-      await device.connect(timeout: const Duration(seconds: _scanTimeoutSec)).catchError((e) {
-        print('connect() warning: $e');
-      });
+      // Connect
+      await device.connect(
+        timeout: Duration(seconds: _scanTimeoutSec),
+        autoConnect: false,
+      );
 
       connectedDevice = device;
       setStateIfMounted(() {
@@ -436,33 +443,58 @@ class ControllerPageState extends State<ControllerPage> {
       });
 
       print('✅ Connected! Discovering services...');
-      List<BluetoothService> services = await device.discoverServices();
+      final services = await device.discoverServices();
 
-      for (BluetoothService service in services) {
+      for (final service in services) {
         if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
-          // Found our target service
-          print('✅ Target service found. Looking for characteristics...');
-          for (BluetoothCharacteristic c in service.characteristics) {
-            //rx = phone → device
+          print('✅ Target service found');
+
+          for (final c in service.characteristics) {
+            // RX = phone → device
             if (c.uuid.toString().toLowerCase() == rxCharUUID) {
               rxCharacteristic = c;
               print('✅ RX Characteristic found');
             }
-            //tx = device → phone
+
+            // TX = device → phone
             if (c.uuid.toString().toLowerCase() == txCharUUID) {
               txCharacteristic = c;
+
               await c.setNotifyValue(true);
+
+              // 🔔 LISTEN to notifications
+              txSubscription = c.value.listen((value) {
+                final response = String.fromCharCodes(value).trim();
+                print('📥 TX received: $response');
+
+                // Complete waiting command if any
+                if (_responseCompleter != null &&
+                    !_responseCompleter!.isCompleted) {
+                  _responseCompleter!.complete(response);
+                }
+              });
+
+              print('✅ TX Characteristic found & listening');
             }
           }
         }
       }
 
-      return true;   // <--- SUCCESS
+      // Validate required characteristics
+      if (rxCharacteristic == null || txCharacteristic == null) {
+        throw Exception('Required BLE characteristics not found');
+      }
+
+      return true;
 
     } catch (e) {
       print('❌ Error connecting: $e');
       showError('Connection failed: $e');
-      return false;  // <--- FAILED
+
+      await txSubscription?.cancel();
+      txSubscription = null;
+
+      return false;
     }
   }
 
@@ -528,54 +560,52 @@ class ControllerPageState extends State<ControllerPage> {
   // Send data safely
   // -------------------------
   Future<void> sendData(String command) async {
-    if (rxCharacteristic == null || !isConnected) {
-      print('❌ Cannot send – Not connected or no RX characteristic');
-      return;
-    }
+    if (!mounted) return;
 
-    try {
-      List<int> bytes = command.codeUnits;
-      // if the characteristic supports withoutResponse you can change the flag
-      await rxCharacteristic!.write(bytes, withoutResponse: false);
-      print('📤 Sent command: $command → bytes: $bytes');
-    } catch (e) {
-      print('Error sending data: $e');
-      showError('Failed to send command: $e');
-    }
+  final device = connectedDevice;
+  if (device == null ||
+      rxCharacteristic == null ||
+      txCharacteristic == null) {
+    showError('Bluetooth not connected');
+    return;
+  }
+
+  final state = await device.connectionState.first;
+  if (state != BluetoothConnectionState.connected) {
+    setState(() => isConnected = false);
+    showError('Bluetooth disconnected');
+    return;
+  }
+
+  try {
+    await txCharacteristic!.write(
+      command.codeUnits,
+      withoutResponse: true,
+    );
+    print('🚗 Sent move: $command');
+  } catch (e) {
+    showError('Send failed');
+  }
   }
   
   void onButtonPressed(String button) {
+    if (!isConnected) return;
+
     setState(() {
       buttonStates[button] = true;
     });
 
-    String command = switch (button) {
+    final command = switch (button) {
       'UP' => 'F',
       'DOWN' => 'B',
       'LEFT' => 'L',
       'RIGHT' => 'R',
-      _ => 'S',
+      _ => null,
     };
 
-    bool yIsOn = false;
-
-    if (command != 'S') {
+    if (command != null) {
       sendData(command);
-    } else if (button == 'A') {
-      sendData('A');
-    } else if (button == 'B') {
-      sendData('B');
-    } else if (button == 'X') {
-      sendData('X');
-    } else if (button == 'Y') {
-      sendData('Y');
-    } else if (button == 'Y') {
-       yIsOn = !yIsOn;   
-       if (yIsOn) {
-        sendData('YisON');   
-      } else {
-        sendData('YisOFF');  
-      }
+      print(command);
     }
   }
 
@@ -600,11 +630,27 @@ class ControllerPageState extends State<ControllerPage> {
 
   void showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+
+    final now = DateTime.now();
+
+    // 🧠 Block duplicate errors within 2 seconds
+    if (_lastErrorMessage == message &&
+        _lastErrorTime != null &&
+        now.difference(_lastErrorTime!) < const Duration(seconds: 2)) {
+      return;
+    }
+
+    _lastErrorMessage = message;
+    _lastErrorTime = now;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -648,17 +694,35 @@ class ControllerPageState extends State<ControllerPage> {
             setDialogState(() {}); // update UI after starting
           }
 
-          void _stopScanForDialog() {
-            stopScan();
+          Future<void> _stopScanForDialog() async {
+            // 1️⃣ Stop BLE scan
+            await FlutterBluePlus.stopScan().catchError((_) {});
+
+            // 2️⃣ Cancel scan subscription
+            await scanSubscription?.cancel();
+            scanSubscription = null;
+
+            // 3️⃣ Cancel dialog timer
             _dialogStopScanTimer?.cancel();
+            _dialogStopScanTimer = null;
+
+            // 4️⃣ Update BOTH dialog + page state
+            if (mounted) {
+              setState(() {
+                isScanning = false;
+              });
+            }
+
+            // 5️⃣ Refresh dialog UI
             setDialogState(() {});
           }
-
-          return WillPopScope(
-            onWillPop: () async {
-              // ensure dialog timer cancelled if user uses back button
-              _dialogStopScanTimer?.cancel();
-              return true;
+          return PopScope(
+            canPop: true, // allow back button / gesture
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop) {
+                // ✅ cleanup when dialog is popped
+                _dialogStopScanTimer?.cancel();
+              }
             },
             child: AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -667,10 +731,16 @@ class ControllerPageState extends State<ControllerPage> {
                 children: [
                   Icon(Icons.bluetooth, color: Colors.blueAccent),
                   SizedBox(width: 10),
-                  Text('Bluetooth Devices', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                  Text(
+                    'Bluetooth Devices',
+                    style: TextStyle(
+                      color: Colors.blueAccent,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
-              content: Container(
+              content: SizedBox(
                 width: double.maxFinite,
                 height: 400,
                 child: Column(
@@ -680,50 +750,88 @@ class ControllerPageState extends State<ControllerPage> {
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
-                            CircularProgressIndicator(color: Colors.blueAccent, strokeWidth: 3),
+                            CircularProgressIndicator(
+                              color: Colors.blueAccent,
+                              strokeWidth: 3,
+                            ),
                             SizedBox(height: 10),
-                            Text("Scanning for devices...", style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic)),
+                            Text(
+                              "Scanning for devices...",
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     Expanded(
                       child: filteredResults.isEmpty
                           ? Center(
-                              child: Text(isScanning ? "Searching nearby devices..." : "No devices found.",
-                                  style: TextStyle(color: const Color.fromARGB(255, 10, 10, 10))),
+                              child: Text(
+                                isScanning
+                                    ? "Searching nearby devices..."
+                                    : "No devices found.",
+                                style: TextStyle(
+                                  color: Color.fromARGB(255, 10, 10, 10),
+                                ),
+                              ),
                             )
                           : ListView.separated(
                               itemCount: filteredResults.length,
-                              separatorBuilder: (_, __) => Divider(color: Colors.grey[300]),
+                              separatorBuilder: (_, __) =>
+                                  Divider(color: Colors.grey[300]),
                               itemBuilder: (context, index) {
                                 final result = filteredResults[index];
                                 final device = result.device;
-                                final name = device.platformName;
 
                                 return ListTile(
-                                  leading: Icon(Icons.devices_other, color: Colors.blueAccent),
-                                  title: Text(name, style: TextStyle(color: const Color.fromARGB(255, 75, 75, 75), fontWeight: FontWeight.w600)),
+                                  leading: Icon(
+                                    Icons.devices_other,
+                                    color: Colors.blueAccent,
+                                  ),
+                                  title: Text(
+                                    device.platformName,
+                                    style: TextStyle(
+                                      color: Color.fromARGB(255, 75, 75, 75),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   subtitle: Text(device.remoteId.toString()),
-                                  trailing: Text('${result.rssi} dBm', style: TextStyle(color: Colors.grey[700])),
+                                  trailing: Text(
+                                    '${result.rssi} dBm',
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
                                   onTap: () async {
-                                    // When tapped: show connecting spinner dialog, attempt connect, then close
-                                    Navigator.pop(context); // close devices list dialog first
-                                    // Cancel dialog timer (it belonged to the list dialog)
+                                    // Close device list dialog
+                                    if (Navigator.canPop(context)) {
+                                      Navigator.pop(context);
+                                    }
+
                                     _dialogStopScanTimer?.cancel();
+
                                     // Show connecting dialog
+                                    late BuildContext connectingDialogContext;
                                     showDialog(
-                                      context: context,
+                                      context: this.context,
                                       barrierDismissible: false,
-                                      builder: (context) {
+                                      builder: (ctx) {
+                                        connectingDialogContext = ctx;
                                         return AlertDialog(
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
                                           content: Padding(
                                             padding: const EdgeInsets.all(16.0),
                                             child: Row(
                                               children: [
                                                 CircularProgressIndicator(),
                                                 SizedBox(width: 16),
-                                                Expanded(child: Text('Connecting to ${device.platformName}...')),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Connecting to ${device.platformName}...',
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                           ),
@@ -731,14 +839,20 @@ class ControllerPageState extends State<ControllerPage> {
                                       },
                                     );
 
-                                    final bool ok = await connectToDevice(device);
-                                    // close connecting dialog
-                                    if (mounted) Navigator.pop(context);
-                                    if (ok) {
-                                      showSuccess('Connected to ${device.platformName}');
-                                    } else {
-                                      showError('Failed to connect to ${device.platformName}');
+                                    final ok = await connectToDevice(device);
+
+                                    if (mounted &&
+                                        Navigator.canPop(connectingDialogContext)) {
+                                      Navigator.pop(connectingDialogContext);
                                     }
+
+                                    if (!mounted) return;
+
+                                    ok
+                                        ? showSuccess(
+                                            'Connected to ${device.platformName}')
+                                        : showError(
+                                            'Failed to connect to ${device.platformName}');
                                   },
                                 );
                               },
@@ -747,22 +861,32 @@ class ControllerPageState extends State<ControllerPage> {
                   ],
                 ),
               ),
-              actionsPadding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              actionsPadding:
+                  EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               actions: [
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isScanning ? Colors.redAccent : Colors.blueAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor:
+                        isScanning ? Colors.redAccent : Colors.blueAccent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  icon: Icon(isScanning ? Icons.stop : Icons.search, color: Colors.white),
-                  label: Text(isScanning ? 'Stop Scan' : 'Start Scan', style: TextStyle(color: Colors.white)),
+                  icon: Icon(
+                    isScanning ? Icons.stop : Icons.search,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    isScanning ? 'Stop Scan' : 'Start Scan',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   onPressed: () async {
                     if (isScanning) {
                       _stopScanForDialog();
                     } else {
                       await _startScanForDialog();
                     }
-                    setDialogState(() {}); // update dialog UI
+                    setDialogState(() {});
                   },
                 ),
                 TextButton(
@@ -770,7 +894,10 @@ class ControllerPageState extends State<ControllerPage> {
                     _dialogStopScanTimer?.cancel();
                     Navigator.pop(context);
                   },
-                  child: Text('Close', style: TextStyle(color: Colors.grey[700])),
+                  child: Text(
+                    'Close',
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
                 ),
               ],
             ),
@@ -813,319 +940,300 @@ class ControllerPageState extends State<ControllerPage> {
     });
 
     if (buttonStates[key] == true) {
-      sendData("${key}on");   // Example: Yon
+      sendData("${key}isON");   // Example: Yon
     } else {
-      sendData("${key}off");  // Example: Yoff
+      sendData("${key}isOFF");  // Example: Yoff
     }
   }
+  
+  void showVoiceDialog() {
+    showDialog(
+      context: context, // 👈 use State context
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Play Voice"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: const Text("Voice 1"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("VOICE_1");
+                },
+              ),
+              ListTile(
+                title: const Text("Voice 2"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("VOICE_2");
+                },
+              ),
+              ListTile(
+                title: const Text("Stop"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("STOP");
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF2C2E3A),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ====================================================
-              // KOLOM 1 (KIRI): Navigasi & D-Pad
-              // ====================================================
-              Expanded(
-                flex: 1,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Column(
+      // 1. Ganti SafeArea langsung dengan Stack agar kita bisa menumpuk layer
+      body: Stack(
+        children: [
+          // -----------------------------------------------------------
+          // LAYER 1: UI Controller Utama (Background)
+          // -----------------------------------------------------------
+          SafeArea(
+            child: Column(
+              children: [
+                // Bagian Header (Tombol Atas)
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Header Kolom Kiri: Back & Wifi
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildCircleButton(Icons.arrow_back, () {
-                              Navigator.pop(context);
-                            }),
-                            _buildCircleButton(Icons.wifi, () {
-                              showWifiDialog();
-                            }),
-                          ],
-                        ),
+                      Row(
+                        children: [
+                          _buildTopButton(Icons.arrow_back, () {
+                            Navigator.pop(context);
+                          }),
+                          const SizedBox(width: 12),
+                          _buildTopButton(Icons.wifi, () {
+                            showWifiDialog();
+                          }),
+                        ],
                       ),
-                      
-                      // D-Pad Control
-                      Expanded(
-                        child: Center(
-                          child: DPadWidget(
-                            buttonStates: buttonStates,
-                            onButtonPressed: onButtonPressed,
-                            onButtonReleased: onButtonReleased,
+                      Row(
+                        children: [
+                          Text(
+                            isConnected
+                                ? (connectedDevice?.platformName ?? 'Connected')
+                                : 'Disconnected',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          _buildToggleSwitch(),
+                        ],
                       ),
                     ],
                   ),
                 ),
-              ),
-
-              const SizedBox(width: 16), // Spasi antar kolom
-
-              // ====================================================
-              // KOLOM 2 (TENGAH): Video Player (Kondisional X) & Speed Slider
-              // ====================================================
-              Expanded(
-                flex: 2,
-                child: Column(
-                  // Jika X mati (video hilang), Slider ketengah. Jika X nyala, rata atas.
-                  mainAxisAlignment: buttonStates['X'] == true
-                      ? MainAxisAlignment.start
-                      : MainAxisAlignment.center,
-                  children: [
-                    
-                    // --- LOGIKA KONDISI: Cek apakah Tombol X Aktif? ---
-                    if (buttonStates['X'] == true) ...[
-                      Expanded(
-                        flex: 3,
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio: 3 / 4,
-                            child: Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.grey.shade800),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.5),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    // WIDGET PEMUTAR VIDEO MJPEG
-                                    Mjpeg(
-                                      isLive: isVideoRunning,
-                                      stream: streamUrl,
-                                      fit: BoxFit.cover,
-                                      error: (context, error, stack) {
-                                        return Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            const Icon(Icons.error_outline,
-                                                color: Colors.red, size: 40),
-                                            const SizedBox(height: 8),
-                                            const Text(
-                                              "Video Offline",
-                                              style: TextStyle(
-                                                  color: Colors.white54),
-                                            ),
-                                            Text(
-                                              streamUrl,
-                                              style: const TextStyle(
-                                                  color: Colors.white24,
-                                                  fontSize: 10),
-                                            ),
-                                          ],
-                                        );
-                                      },
-                                      loading: (context) {
-                                        return const Center(
-                                          child: CircularProgressIndicator(
-                                            color: Colors.redAccent,
-                                          ),
-                                        );
-                                      },
-                                    ),
-
-                                    // Tombol Refresh Video
-                                    Positioned(
-                                      top: 10,
-                                      right: 10,
-                                      child: GestureDetector(
-                                        onTap: () {
-                                          setState(() {
-                                            isVideoRunning = false;
-                                          });
-                                          Future.delayed(
-                                              const Duration(milliseconds: 200),
-                                              () {
-                                            setState(() {
-                                              isVideoRunning = true;
-                                            });
-                                          });
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.all(6),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.black54,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(Icons.refresh,
-                                              color: Colors.white, size: 20),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      // Spasi pemisah antara Video dan Slider
-                      const SizedBox(height: 16),
-                    ],
-
-                    // --- AREA SPEED SLIDER (SELALU MUNCUL) ---
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 16),
+                
+                // Bagian Kontrol Utama (DPad, Slider, Action Buttons)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(24),
                       ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 30),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // Kiri: DPad
+                            Expanded(
+                              flex: 2,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: DPadWidget(
+                                  buttonStates: buttonStates,
+                                  onButtonPressed: onButtonPressed,
+                                  onButtonReleased: onButtonReleased,
+                                ),
+                              ),
+                            ),
+
+                            // Tengah: Speed Slider
+                            Expanded(
+                              flex: 1,
+                              child: Center(
+                                child: Container(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 200),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        'Speed',
+                                        style: TextStyle(
+                                          color: Colors.black,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      SliderTheme(
+                                        data: SliderThemeData(
+                                          activeTrackColor:
+                                              const Color(0xFF8B0000),
+                                          inactiveTrackColor:
+                                              const Color(0xFFD3D3D3),
+                                          thumbColor: const Color(0xFF8B0000),
+                                          overlayColor: const Color(0xFF8B0000)
+                                              .withOpacity(0.2),
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                            enabledThumbRadius: 12.0,
+                                          ),
+                                          trackHeight: 8.0,
+                                        ),
+                                        child: Slider(
+                                          value: speedValue,
+                                          min: 0,
+                                          max: 100,
+                                          divisions: 100,
+                                          label: speedValue.round().toString(),
+                                          onChanged: (value) {
+                                            setState(() {
+                                              speedValue = value;
+                                            });
+                                            int speedInt = value.toInt();
+                                            sendData('V$speedInt');
+                                          },
+                                        ),
+                                      ),
+                                      Text(
+                                        '${speedValue.round()}%',
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // Kanan: Action Buttons
+                            Expanded(
+                              flex: 2,
+                              child: Center(
+                                child: ActionButtonsWidget(
+                                  buttonStates: buttonStates,
+                                  onToggle: onToggle,
+                                  onVoicePressed: showVoiceDialog,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // -----------------------------------------------------------
+          // LAYER 2: Floating Video Player (Paling Atas)
+          // -----------------------------------------------------------
+         if (buttonStates['A'] == true)
+          _buildFloatingVideo(),
+        ],
+      ),
+    );
+  }
+
+Widget _buildFloatingVideo() {
+    return Positioned(
+      top: 0, // Posisi mutlak di paling atas
+      left: 0,
+      right: 0,
+      // HAPUS widget SafeArea di sini agar video naik sampai ke balik status bar/poni
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          // HAPUS margin top (sebelumnya margin: const EdgeInsets.only(top: 10))
+          margin: EdgeInsets.zero, 
+          
+          height: 220, // Tinggi video (sesuaikan jika perlu)
+          decoration: BoxDecoration(
+            color: Colors.black,
+            // Hapus border radius atas jika ingin kotak sempurna menempel di bezel
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(12),
+              bottomRight: Radius.circular(12),
+            ),
+            border: Border.all(color: const Color.fromARGB(255, 255, 255, 255), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          // Rasio 4:3
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: ClipRRect(
+              // Samakan radius dengan container (hanya bawah yang melengkung)
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(10),
+                bottomRight: Radius.circular(10),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // --- Placeholder Video Feed ---
+                  Container(
+                    color: Colors.grey[900],
+                    child: const Center(
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Speed',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              Text(
-                                '${speedValue.round()}%',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF8B0000),
-                                ),
-                              ),
-                            ],
-                          ),
-                          SliderTheme(
-                            data: SliderThemeData(
-                              activeTrackColor: const Color(0xFF8B0000),
-                              inactiveTrackColor: Colors.grey.shade300,
-                              thumbColor: const Color(0xFF8B0000),
-                              overlayColor:
-                                  const Color(0xFF8B0000).withOpacity(0.2),
-                              trackHeight: 8.0,
-                              thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 10.0),
-                            ),
-                            child: Slider(
-                              value: speedValue,
-                              min: 0,
-                              max: 100,
-                              divisions: 100,
-                              onChanged: (value) {
-                                setState(() {
-                                  speedValue = value;
-                                });
-                                int speedInt = value.toInt();
-                                sendData('V$speedInt');
-                              },
-                            ),
-                          ),
+                          Icon(Icons.videocam_off,
+                              color: Colors.white54, size: 40),
+                          SizedBox(height: 8),
+                          Text("No Video Feed",
+                              style: TextStyle(color: Colors.white54)),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-              
-              // ====================================================
-              // KOLOM 3 (KANAN): Toggle Connect & Action Buttons
-              // ====================================================
-              Expanded(
-                flex: 1,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Column(
-                    children: [
-                      // Header Kolom Kanan: Status & Toggle
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          children: [
-                            _buildToggleSwitch(),
-                            const SizedBox(height: 8),
-                            Text(
-                              isConnected
-                                  ? (connectedDevice?.platformName ?? 'Connected')
-                                  : 'Disconnected',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: isConnected ? Colors.greenAccent : Colors.white54,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const Spacer(),
 
-                      // Action Buttons (A, B, X, Y)
-                      ActionButtonsWidget(
-                        buttonStates: buttonStates,
-                        onToggle: onToggle,
-                      ),
-                      
-                      const Spacer(),
-                    ],
-                  ),
-                ),
+                
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // --- Helper Widgets Baru untuk Layout Ini ---
+  Widget _soundTile(BuildContext context, String title, String command) {
+    return ListTile(
+      leading: const Icon(Icons.play_arrow, color: Colors.blueAccent),
+      title: Text(title),
+      trailing: const Icon(Icons.volume_up),
+      onTap: () async {
+        Navigator.pop(context);
 
-  Widget _buildCircleButton(IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle, // Tombol bulat lebih estetis
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            )
-          ],
-        ),
-        child: Icon(icon, color: Colors.black87, size: 24),
-      ),
+        await sendData(command); // 🔥 uses your existing logic
+      },
     );
   }
 
@@ -1148,44 +1256,54 @@ class ControllerPageState extends State<ControllerPage> {
     );
   }
 
-Widget _buildToggleSwitch() {
-    return GestureDetector(
-      onTap: () {
-        if (isConnected) {
-          disconnectDevice();
-        } else {
-          showBluetoothDialog();
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isConnected ? const Color(0xFF34C759) : Colors.grey.shade700,
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              isConnected ? "ON" : "OFF",
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+    Widget _buildToggleSwitch() {
+      return GestureDetector(
+        onTap: () {
+          if (isConnected) {
+            disconnectDevice();
+          } else {
+            showBluetoothDialog();
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 58,
+          height: 34,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: isConnected
+                ? const Color(0xFF34C759) // 🟢 connected
+                : const Color(0xFFB0B0B0), // ⚪ gray when disconnected
+          ),
+          padding: const EdgeInsets.all(3),
+          child: AnimatedAlign(
+            duration: const Duration(milliseconds: 200),
+            alignment:
+                isConnected ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isConnected
+                    ? Colors.white
+                    : Colors.grey.shade300, // ⚪ gray knob
+                boxShadow: isConnected
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [], // ❌ no shadow when disconnected
               ),
             ),
-          ],
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
-}
 
 class DPadWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
@@ -1330,42 +1448,54 @@ class DPadButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
+    Widget build(BuildContext context) {
+      return Listener(
+        behavior: HitTestBehavior.opaque,
 
-            behavior: HitTestBehavior.opaque, 
-      onTapDown: (_) => onPressed(),
-      onTapUp: (_) => onReleased(),
-      onTapCancel: onReleased,
-      child: Container(
-        width: 70,
-        height: 70,
-                        alignment: Alignment.center,   // pastikan icon benar-benar center
+        // 🟢 Finger touches screen
+        onPointerDown: (_) {
+          onPressed();
+        },
 
-        decoration: BoxDecoration(
-          color: isPressed ? Colors.white.withOpacity(0.3) : Colors.transparent,
-          // Menggunakan BoxShape.circle untuk membuat bagian interaksi lebih intuitif
-          shape: BoxShape.circle,
+        // 🔴 Finger lifts
+        onPointerUp: (_) {
+          onReleased();
+        },
+
+        // ⚠️ Safety (gesture interrupted)
+        onPointerCancel: (_) {
+          onReleased();
+        },
+
+        child: Container(
+          width: 70,
+          height: 70,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isPressed
+                ? Colors.white.withOpacity(0.3)
+                : Colors.transparent,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: Colors.white,
+            size: 36,
+          ),
         ),
-
-        child: Icon(
-          icon,
-          color: Colors.white,
-          size: 36,
-        ),
-      ),
-      
-    );
-  }
+      );
+    }
 }
 
 class ActionButtonsWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
   final Function(String) onToggle;   // <-- NEW: toggle function
+  final VoidCallback onVoicePressed; 
 
   const ActionButtonsWidget({
     required this.buttonStates,
     required this.onToggle,
+    required this.onVoicePressed,
   });
 
   @override
@@ -1382,6 +1512,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'X',
               isOn: buttonStates['X']!,
+              isLocked: false,
               onToggle: () => onToggle('X'),
             ),
           ),
@@ -1393,6 +1524,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'Y',
               isOn: buttonStates['Y']!,
+              isLocked: false,
               onToggle: () => onToggle('Y'),
             ),
           ),
@@ -1404,6 +1536,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'A',
               isOn: buttonStates['A']!,
+              isLocked: false,
               onToggle: () => onToggle('A'),
             ),
           ),
@@ -1414,8 +1547,9 @@ class ActionButtonsWidget extends StatelessWidget {
             left: 60,
             child: ActionButton(
               label: 'B',
-              isOn: buttonStates['B']!,
-              onToggle: () => onToggle('B'),
+              isOn: false,
+              isLocked: false,
+              onToggle: onVoicePressed, // 👈 CALL DIALOG
             ),
           ),
         ],
@@ -1429,13 +1563,14 @@ class ActionButton extends StatelessWidget {
   final String label;
   final bool isOn;                     // <-- toggle state
   final VoidCallback onToggle;         // <-- toggle callback
-
+  final bool isLocked;                 // <-- if true, button is not toggleable
   final double size = 60.0;
 
   const ActionButton({
     super.key,
     required this.label,
     required this.isOn,
+    required this.isLocked,
     required this.onToggle,
   });
 
@@ -1504,7 +1639,7 @@ class ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onToggle,       // <-- One tap toggles ON/OFF
+      onTap: isLocked ? null : onToggle, // 🔒 disable when locked
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
 
@@ -1512,20 +1647,42 @@ class ActionButton extends StatelessWidget {
         height: size,
 
         decoration: BoxDecoration(
-          color: isOn ? Colors.green.withOpacity(0.25) : Colors.grey.withOpacity(0.2),
+          color: isLocked
+              ? Colors.grey.withOpacity(0.15)
+              : isOn
+                  ? Colors.green.withOpacity(0.25)
+                  : Colors.grey.withOpacity(0.2),
           shape: BoxShape.circle,
           border: Border.all(
-            color: isOn ? Colors.green : Colors.grey,
+            color: isLocked
+                ? Colors.grey
+                : isOn
+                    ? Colors.green
+                    : Colors.grey,
             width: 3,
           ),
         ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // SVG Icon
+            Opacity(
+              opacity: isLocked ? 0.4 : 1.0,
+              child: SvgPicture.string(
+                _getSvgIcon(label),
+                width: label == 'Y' ? 30 : 28,
+                height: label == 'Y' ? 30 : 28,
+              ),
+            ),
 
-        child: Center(
-          child: SvgPicture.string(
-            _getSvgIcon(label),
-            width: label == 'Y' ? 30 : 28,
-            height: label == 'Y' ? 30 : 28,
-          ),
+            // 🔒 Lock overlay
+            if (isLocked)
+              const Icon(
+                Icons.lock,
+                size: 18,
+                color: Colors.grey,
+              ),
+          ],
         ),
       ),
     );
