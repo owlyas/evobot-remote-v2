@@ -347,8 +347,10 @@ class ControllerPageState extends State<ControllerPage> {
     if (isScanning) return;
 
     // 🔴 1. Ensure Bluetooth is ON
-    if (!await FlutterBluePlus.isOn) {
-      showError('Bluetooth is turned off');
+    final adapterState = await FlutterBluePlus.adapterState.first;
+
+    if (adapterState != BluetoothAdapterState.on) {
+      showError('Bluetooth is OFF');
       return;
     }
 
@@ -391,11 +393,12 @@ class ControllerPageState extends State<ControllerPage> {
 
       scanSubscription?.cancel();
       scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+        // print("Results: ${scanResults.length}");
         if (!mounted) return;
 
         setState(() {
           scanResults = results
-              .where((r) => r.device.platformName.isNotEmpty)
+              // .where((r) => r.device.platformName.isNotEmpty)
               .toList();
         });
       });
