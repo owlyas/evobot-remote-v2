@@ -37,6 +37,8 @@ class ControllerPageState extends State<ControllerPage> {
   List<ScanResult> scanResults = [];
   StreamSubscription<List<ScanResult>>? scanSubscription;
   StreamSubscription<BluetoothConnectionState>? connectionSubscription;
+  String? _lastErrorMessage;
+  DateTime? _lastErrorTime;
 
   Map<String, bool> buttonStates = {
     'UP': false,
@@ -344,71 +346,56 @@ class ControllerPageState extends State<ControllerPage> {
   // Bluetooth scanning (with permissions & safe timer)
   // -------------------------
   Future<void> startScan() async {
-    if (isScanning) return;
-
-    // 🔴 1. Ensure Bluetooth is ON
-    final adapterState = await FlutterBluePlus.adapterState.first;
-
-    if (adapterState != BluetoothAdapterState.on) {
-      showError('Bluetooth is OFF');
+    // Request location permission for BLE scan on Android
+    final status = await Permission.locationWhenInUse.request();
+    if (!status.isGranted) {
+      showError('Location permission is required for Bluetooth scanning.');
       return;
     }
 
-    // 🔴 2. Request permissions (ANDROID SAFE)
-    if (Platform.isAndroid) {
-      final androidInfo = await DeviceInfoPlugin().androidInfo;
-
-      if (androidInfo.version.sdkInt >= 31) {
-        // Android 12+
-        final scanStatus = await Permission.bluetoothScan.request();
-        final connectStatus = await Permission.bluetoothConnect.request();
-
-        if (!scanStatus.isGranted || !connectStatus.isGranted) {
-          showError('Bluetooth permission required');
-          return;
-        }
-      } else {
-        // Android 6–11
-        final locationStatus = await Permission.location.request();
-        if (!locationStatus.isGranted) {
-          showError('Location permission required for BLE');
-          return;
-        }
-      }
-    }
+    // Prevent double start
+    if (isScanning) return;
 
     setStateIfMounted(() {
       isScanning = true;
-      scanResults.clear();
+      scanResults = [];
     });
 
-    // 🔴 3. Stop previous scan safely
-    await FlutterBluePlus.stopScan().catchError((_) {});
-    
+    // Cancel any previous subscription
+    scanSubscription?.cancel();
+
+    // Start scanning
     try {
-      // 🔴 4. Start scan
+      // Ensure any previous scan is stopped first
+      await FlutterBluePlus.stopScan().catchError((_) {});
       await FlutterBluePlus.startScan(
-      timeout: Duration(seconds: _scanTimeoutSec),
+        timeout: Duration(seconds: _scanTimeoutSec),
+        androidUsesFineLocation: true,
       );
 
-      scanSubscription?.cancel();
+      // Subscribe to scan results and throttle UI updates
       scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-        // print("Results: ${scanResults.length}");
-        if (!mounted) return;
-
-        setState(() {
-          scanResults = results
-              // .where((r) => r.device.platformName.isNotEmpty)
-              .toList();
-        });
+        final now = DateTime.now();
+        if (now.difference(_lastScanUpdate) >= _scanUpdateInterval) {
+          _lastScanUpdate = now;
+          setStateIfMounted(() {
+            scanResults = results;
+          });
+        } else {
+          // still update internal list so we always have latest for tapping,
+          // but avoid calling setState too often
+          scanResults = results;
+        }
       });
 
-      // 🔴 5. Safety stop
+      // Also set a stop timer as a safeguard (in case plugin timeout behaves differently)
       stopTimer?.cancel();
-      stopTimer = Timer(Duration(seconds: _scanTimeoutSec), stopScan);
+      stopTimer = Timer(Duration(seconds: _scanTimeoutSec), () async {
+        await stopScan().catchError((_) {});
+      });
     } catch (e) {
-      print('❌ BLE scan error: $e');
-      showError('Failed to scan Bluetooth devices');
+      print('Error starting BLE scan: $e');
+      showError('Failed to start Bluetooth scan: $e');
       setStateIfMounted(() => isScanning = false);
     }
   }
@@ -493,7 +480,7 @@ class ControllerPageState extends State<ControllerPage> {
         }
       }
 
-      // ❗ Validate required characteristics
+      // Validate required characteristics
       if (rxCharacteristic == null || txCharacteristic == null) {
         throw Exception('Required BLE characteristics not found');
       }
@@ -573,70 +560,50 @@ class ControllerPageState extends State<ControllerPage> {
   // Send data safely
   // -------------------------
   Future<void> sendData(String command) async {
-    final state = await connectedDevice!.connectionState.first;
-    if (state != BluetoothConnectionState.connected) {
-      setState(() => isConnected = false);
-      showError('Bluetooth disconnected');
-      return;
-    }
+    if (!mounted) return;
 
+  final device = connectedDevice;
+  if (device == null ||
+      rxCharacteristic == null ||
+      txCharacteristic == null) {
+    showError('Bluetooth not connected');
+    return;
+  }
 
-    const moveCommands = {'F', 'B', 'L', 'R', 'S'};
+  final state = await device.connectionState.first;
+  if (state != BluetoothConnectionState.connected) {
+    setState(() => isConnected = false);
+    showError('Bluetooth disconnected');
+    return;
+  }
 
-    try {
-      // 🚗 Movement → NO WAIT
-      if (moveCommands.contains(command)) {
-        print(command);
-        await rxCharacteristic!.write(
-        command.codeUnits,
-        withoutResponse: false,
-      );
-        print('🚗 Sent move: $command');
-        return;
-      }
-
-      // 🔐 Control → WAIT FOR OK
-      final completer = Completer<void>();
-      late StreamSubscription sub;
-
-      sub = txCharacteristic!.value.listen((value) {
-        if (String.fromCharCodes(value).trim() == 'OK' &&
-            !completer.isCompleted) {
-          completer.complete();
-        }
-      });
-
-
-      await rxCharacteristic!.write(
-        command.codeUnits,
-        withoutResponse: false,
-      );
-
-      await completer.future.timeout(const Duration(seconds: 2));
-      await sub.cancel();
-
-      print('✅ Command OK: $command');
-    } catch (e) {
-      print('❌ Send failed: $e');
-      showError('Command failed');
-    }
+  try {
+    await txCharacteristic!.write(
+      command.codeUnits,
+      withoutResponse: true,
+    );
+    print('🚗 Sent move: $command');
+  } catch (e) {
+    showError('Send failed');
+  }
   }
   
   void onButtonPressed(String button) {
+    if (!isConnected) return;
+
     setState(() {
       buttonStates[button] = true;
     });
 
-    String command = switch (button) {
+    final command = switch (button) {
       'UP' => 'F',
       'DOWN' => 'B',
       'LEFT' => 'L',
       'RIGHT' => 'R',
-      _ => 'S',
+      _ => null,
     };
 
-    // ✅ SEND COMMAND ON PRESS
-    if (command != 'S') {
+    if (command != null) {
       sendData(command);
       print(command);
     }
@@ -663,11 +630,27 @@ class ControllerPageState extends State<ControllerPage> {
 
   void showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+
+    final now = DateTime.now();
+
+    // 🧠 Block duplicate errors within 2 seconds
+    if (_lastErrorMessage == message &&
+        _lastErrorTime != null &&
+        now.difference(_lastErrorTime!) < const Duration(seconds: 2)) {
+      return;
+    }
+
+    _lastErrorMessage = message;
+    _lastErrorTime = now;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -711,17 +694,35 @@ class ControllerPageState extends State<ControllerPage> {
             setDialogState(() {}); // update UI after starting
           }
 
-          void _stopScanForDialog() {
-            stopScan();
+          Future<void> _stopScanForDialog() async {
+            // 1️⃣ Stop BLE scan
+            await FlutterBluePlus.stopScan().catchError((_) {});
+
+            // 2️⃣ Cancel scan subscription
+            await scanSubscription?.cancel();
+            scanSubscription = null;
+
+            // 3️⃣ Cancel dialog timer
             _dialogStopScanTimer?.cancel();
+            _dialogStopScanTimer = null;
+
+            // 4️⃣ Update BOTH dialog + page state
+            if (mounted) {
+              setState(() {
+                isScanning = false;
+              });
+            }
+
+            // 5️⃣ Refresh dialog UI
             setDialogState(() {});
           }
-
-          return WillPopScope(
-            onWillPop: () async {
-              // ensure dialog timer cancelled if user uses back button
-              _dialogStopScanTimer?.cancel();
-              return true;
+          return PopScope(
+            canPop: true, // allow back button / gesture
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop) {
+                // ✅ cleanup when dialog is popped
+                _dialogStopScanTimer?.cancel();
+              }
             },
             child: AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -730,10 +731,16 @@ class ControllerPageState extends State<ControllerPage> {
                 children: [
                   Icon(Icons.bluetooth, color: Colors.blueAccent),
                   SizedBox(width: 10),
-                  Text('Bluetooth Devices', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                  Text(
+                    'Bluetooth Devices',
+                    style: TextStyle(
+                      color: Colors.blueAccent,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
-              content: Container(
+              content: SizedBox(
                 width: double.maxFinite,
                 height: 400,
                 child: Column(
@@ -743,50 +750,77 @@ class ControllerPageState extends State<ControllerPage> {
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
-                            CircularProgressIndicator(color: Colors.blueAccent, strokeWidth: 3),
+                            CircularProgressIndicator(
+                              color: Colors.blueAccent,
+                              strokeWidth: 3,
+                            ),
                             SizedBox(height: 10),
-                            Text("Scanning for devices...", style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic)),
+                            Text(
+                              "Scanning for devices...",
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     Expanded(
                       child: filteredResults.isEmpty
                           ? Center(
-                              child: Text(isScanning ? "Searching nearby devices..." : "No devices found.",
-                                  style: TextStyle(color: const Color.fromARGB(255, 10, 10, 10))),
+                              child: Text(
+                                isScanning
+                                    ? "Searching nearby devices..."
+                                    : "No devices found.",
+                                style: TextStyle(
+                                  color: Color.fromARGB(255, 10, 10, 10),
+                                ),
+                              ),
                             )
                           : ListView.separated(
                               itemCount: filteredResults.length,
-                              separatorBuilder: (_, __) => Divider(color: Colors.grey[300]),
+                              separatorBuilder: (_, __) =>
+                                  Divider(color: Colors.grey[300]),
                               itemBuilder: (context, index) {
                                 final result = filteredResults[index];
                                 final device = result.device;
-                                final name = device.platformName;
 
                                 return ListTile(
-                                  leading: Icon(Icons.devices_other, color: Colors.blueAccent),
-                                  title: Text(name, style: TextStyle(color: const Color.fromARGB(255, 75, 75, 75), fontWeight: FontWeight.w600)),
+                                  leading: Icon(
+                                    Icons.devices_other,
+                                    color: Colors.blueAccent,
+                                  ),
+                                  title: Text(
+                                    device.platformName,
+                                    style: TextStyle(
+                                      color: Color.fromARGB(255, 75, 75, 75),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   subtitle: Text(device.remoteId.toString()),
-                                  trailing: Text('${result.rssi} dBm', style: TextStyle(color: Colors.grey[700])),
+                                  trailing: Text(
+                                    '${result.rssi} dBm',
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
                                   onTap: () async {
-                                    // 1️⃣ Close the device list dialog safely
-                                    final listDialogContext = context;
-                                    if (Navigator.canPop(listDialogContext)) {
-                                      Navigator.pop(listDialogContext);
+                                    // Close device list dialog
+                                    if (Navigator.canPop(context)) {
+                                      Navigator.pop(context);
                                     }
 
                                     _dialogStopScanTimer?.cancel();
 
-                                    // 2️⃣ Show "connecting" dialog and CAPTURE ITS CONTEXT
+                                    // Show connecting dialog
                                     late BuildContext connectingDialogContext;
-
                                     showDialog(
-                                      context: this.context, // PAGE context, not dialog context
+                                      context: this.context,
                                       barrierDismissible: false,
                                       builder: (ctx) {
                                         connectingDialogContext = ctx;
                                         return AlertDialog(
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
                                           content: Padding(
                                             padding: const EdgeInsets.all(16.0),
                                             child: Row(
@@ -794,7 +828,9 @@ class ControllerPageState extends State<ControllerPage> {
                                                 CircularProgressIndicator(),
                                                 SizedBox(width: 16),
                                                 Expanded(
-                                                  child: Text('Connecting to ${device.platformName}...'),
+                                                  child: Text(
+                                                    'Connecting to ${device.platformName}...',
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -803,24 +839,21 @@ class ControllerPageState extends State<ControllerPage> {
                                       },
                                     );
 
-                                    // 3️⃣ Attempt BLE connection
-                                    final bool ok = await connectToDevice(device);
+                                    final ok = await connectToDevice(device);
 
-                                    // 4️⃣ Close connecting dialog SAFELY
-                                    if (mounted && Navigator.canPop(connectingDialogContext)) {
+                                    if (mounted &&
+                                        Navigator.canPop(connectingDialogContext)) {
                                       Navigator.pop(connectingDialogContext);
                                     }
 
                                     if (!mounted) return;
 
-                                    // 5️⃣ Show result
-                                    if (ok) {
-                                      showSuccess('Connected to ${device.platformName}');
-                                    } else {
-                                      showError('Failed to connect to ${device.platformName}');
-                                    }
+                                    ok
+                                        ? showSuccess(
+                                            'Connected to ${device.platformName}')
+                                        : showError(
+                                            'Failed to connect to ${device.platformName}');
                                   },
-
                                 );
                               },
                             ),
@@ -828,22 +861,32 @@ class ControllerPageState extends State<ControllerPage> {
                   ],
                 ),
               ),
-              actionsPadding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              actionsPadding:
+                  EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               actions: [
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isScanning ? Colors.redAccent : Colors.blueAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor:
+                        isScanning ? Colors.redAccent : Colors.blueAccent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  icon: Icon(isScanning ? Icons.stop : Icons.search, color: Colors.white),
-                  label: Text(isScanning ? 'Stop Scan' : 'Start Scan', style: TextStyle(color: Colors.white)),
+                  icon: Icon(
+                    isScanning ? Icons.stop : Icons.search,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    isScanning ? 'Stop Scan' : 'Start Scan',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   onPressed: () async {
                     if (isScanning) {
                       _stopScanForDialog();
                     } else {
                       await _startScanForDialog();
                     }
-                    setDialogState(() {}); // update dialog UI
+                    setDialogState(() {});
                   },
                 ),
                 TextButton(
@@ -851,7 +894,10 @@ class ControllerPageState extends State<ControllerPage> {
                     _dialogStopScanTimer?.cancel();
                     Navigator.pop(context);
                   },
-                  child: Text('Close', style: TextStyle(color: Colors.grey[700])),
+                  child: Text(
+                    'Close',
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
                 ),
               ],
             ),
