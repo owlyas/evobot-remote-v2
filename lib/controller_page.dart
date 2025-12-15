@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:get/get.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -54,7 +56,7 @@ class ControllerPageState extends State<ControllerPage> {
   static const Duration _scanUpdateInterval = Duration(milliseconds: 300);
 
   // Default scan timeout (seconds)
-  static const int _scanTimeoutSec = 5;
+  static const int _scanTimeoutSec = 3;
 
   // Reconnect/backoff config
   int _reconnectAttempts = 0;
@@ -342,56 +344,68 @@ class ControllerPageState extends State<ControllerPage> {
   // Bluetooth scanning (with permissions & safe timer)
   // -------------------------
   Future<void> startScan() async {
-    // Request location permission for BLE scan on Android
-    final status = await Permission.locationWhenInUse.request();
-    if (!status.isGranted) {
-      showError('Location permission is required for Bluetooth scanning.');
+    if (isScanning) return;
+
+    // 🔴 1. Ensure Bluetooth is ON
+    if (!await FlutterBluePlus.isOn) {
+      showError('Bluetooth is turned off');
       return;
     }
 
-    // Prevent double start
-    if (isScanning) return;
+    // 🔴 2. Request permissions (ANDROID SAFE)
+    if (Platform.isAndroid) {
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+
+      if (androidInfo.version.sdkInt >= 31) {
+        // Android 12+
+        final scanStatus = await Permission.bluetoothScan.request();
+        final connectStatus = await Permission.bluetoothConnect.request();
+
+        if (!scanStatus.isGranted || !connectStatus.isGranted) {
+          showError('Bluetooth permission required');
+          return;
+        }
+      } else {
+        // Android 6–11
+        final locationStatus = await Permission.location.request();
+        if (!locationStatus.isGranted) {
+          showError('Location permission required for BLE');
+          return;
+        }
+      }
+    }
 
     setStateIfMounted(() {
       isScanning = true;
-      scanResults = [];
+      scanResults.clear();
     });
 
-    // Cancel any previous subscription
-    scanSubscription?.cancel();
-
-    // Start scanning
+    // 🔴 3. Stop previous scan safely
+    await FlutterBluePlus.stopScan().catchError((_) {});
+    
     try {
-      // Ensure any previous scan is stopped first
-      await FlutterBluePlus.stopScan().catchError((_) {});
+      // 🔴 4. Start scan
       await FlutterBluePlus.startScan(
-        timeout: Duration(seconds: _scanTimeoutSec),
-        androidUsesFineLocation: true,
+      timeout: Duration(seconds: _scanTimeoutSec),
       );
 
-      // Subscribe to scan results and throttle UI updates
+      scanSubscription?.cancel();
       scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-        final now = DateTime.now();
-        if (now.difference(_lastScanUpdate) >= _scanUpdateInterval) {
-          _lastScanUpdate = now;
-          setStateIfMounted(() {
-            scanResults = results;
-          });
-        } else {
-          // still update internal list so we always have latest for tapping,
-          // but avoid calling setState too often
-          scanResults = results;
-        }
+        if (!mounted) return;
+
+        setState(() {
+          scanResults = results
+              .where((r) => r.device.platformName.isNotEmpty)
+              .toList();
+        });
       });
 
-      // Also set a stop timer as a safeguard (in case plugin timeout behaves differently)
+      // 🔴 5. Safety stop
       stopTimer?.cancel();
-      stopTimer = Timer(Duration(seconds: _scanTimeoutSec), () async {
-        await stopScan().catchError((_) {});
-      });
+      stopTimer = Timer(Duration(seconds: _scanTimeoutSec), stopScan);
     } catch (e) {
-      print('Error starting BLE scan: $e');
-      showError('Failed to start Bluetooth scan: $e');
+      print('❌ BLE scan error: $e');
+      showError('Failed to scan Bluetooth devices');
       setStateIfMounted(() => isScanning = false);
     }
   }
@@ -556,63 +570,52 @@ class ControllerPageState extends State<ControllerPage> {
   // Send data safely
   // -------------------------
   Future<void> sendData(String command) async {
-    if (rxCharacteristic == null ||
-        txCharacteristic == null ||
-        !isConnected) {
-      print('❌ Cannot send – not connected');
+    final state = await connectedDevice!.connectionState.first;
+    if (state != BluetoothConnectionState.connected) {
+      setState(() => isConnected = false);
+      showError('Bluetooth disconnected');
       return;
     }
 
-    // 🚗 Continuous movement commands (NO CHECK, NO WAIT)
+
     const moveCommands = {'F', 'B', 'L', 'R', 'S'};
 
-    if (moveCommands.contains(command)) {
-      try {
-        await rxCharacteristic!.write(
-          command.codeUnits,
-          withoutResponse: true, // FAST & continuous
-        );
-        print('🚗 Sent move: $command');
-      } catch (e) {
-        print('❌ Move send error: $e');
-      }
-      return; // ⬅ EXIT (no validation)
-    }
-
-    // 🔐 Control commands (WAIT FOR OK)
-    final completer = Completer<void>();
-
-    late StreamSubscription<List<int>> subscription;
-    subscription = txCharacteristic!.value.listen((value) {
-      final response = String.fromCharCodes(value).trim();
-      print('📥 TX received: $response');
-
-      if (response == 'OK' && !completer.isCompleted) {
-        completer.complete();
-      }
-    });
-
     try {
+      // 🚗 Movement → NO WAIT
+      if (moveCommands.contains(command)) {
+        print(command);
+        await rxCharacteristic!.write(
+        command.codeUnits,
+        withoutResponse: false,
+      );
+        print('🚗 Sent move: $command');
+        return;
+      }
+
+      // 🔐 Control → WAIT FOR OK
+      final completer = Completer<void>();
+      late StreamSubscription sub;
+
+      sub = txCharacteristic!.value.listen((value) {
+        if (String.fromCharCodes(value).trim() == 'OK' &&
+            !completer.isCompleted) {
+          completer.complete();
+        }
+      });
+
+
       await rxCharacteristic!.write(
         command.codeUnits,
         withoutResponse: false,
       );
-      print('📤 Sent command: $command');
 
-      // Wait for OK
-      await completer.future.timeout(
-        const Duration(seconds: 3),
-        onTimeout: () {
-          throw Exception('No OK response');
-        },
-      );
+      await completer.future.timeout(const Duration(seconds: 2));
+      await sub.cancel();
 
-      print('✅ Command acknowledged');
+      print('✅ Command OK: $command');
     } catch (e) {
-      print('❌ Command failed: $e');
-      showError('Device did not acknowledge command');
-    } finally {
-      await subscription.cancel();
+      print('❌ Send failed: $e');
+      showError('Command failed');
     }
   }
   
@@ -629,26 +632,11 @@ class ControllerPageState extends State<ControllerPage> {
       _ => 'S',
     };
 
-    // bool yIsOn = false;
-
-    // if (command != 'S') {
-    //   sendData(command);
-    // } else if (button == 'A') {
-    //   sendData('A');
-    // } else if (button == 'B') {
-    //   sendData('B');
-    // } else if (button == 'X') {
-    //   sendData('X');
-    // } else if (button == 'Y') {
-    //   sendData('Y');
-    // } else if (button == 'Y') {
-    //    yIsOn = !yIsOn;   
-    //    if (yIsOn) {
-    //     sendData('YisON');   
-    //   } else {
-    //     sendData('YisOFF');
-    //   }
-    // }
+    // ✅ SEND COMMAND ON PRESS
+    if (command != 'S') {
+      sendData(command);
+      print(command);
+    }
   }
 
   void onButtonReleased(String button) {
@@ -903,9 +891,9 @@ class ControllerPageState extends State<ControllerPage> {
     });
 
     if (buttonStates[key] == true) {
-      sendData("${key}on");   // Example: Yon
+      sendData("${key}isON");   // Example: Yon
     } else {
-      sendData("${key}off");  // Example: Yoff
+      sendData("${key}isOFF");  // Example: Yoff
     }
   }
   
@@ -1154,30 +1142,38 @@ class ControllerPageState extends State<ControllerPage> {
             showBluetoothDialog();
           }
         },
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           width: 58,
           height: 34,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            color: isConnected ? Color(0xFF34C759) : Color(0xFF8E8E93),
+            color: isConnected
+                ? const Color(0xFF34C759) // 🟢 connected
+                : const Color(0xFFB0B0B0), // ⚪ gray when disconnected
           ),
           padding: const EdgeInsets.all(3),
           child: AnimatedAlign(
-            duration: Duration(milliseconds: 200),
-            alignment: isConnected ? Alignment.centerRight : Alignment.centerLeft,
+            duration: const Duration(milliseconds: 200),
+            alignment:
+                isConnected ? Alignment.centerRight : Alignment.centerLeft,
             child: Container(
               width: 28,
               height: 28,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: Offset(0, 2),
-                  ),
-                ],
+                color: isConnected
+                    ? Colors.white
+                    : Colors.grey.shade300, // ⚪ gray knob
+                boxShadow: isConnected
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [], // ❌ no shadow when disconnected
               ),
             ),
           ),
@@ -1329,33 +1325,43 @@ class DPadButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
+    Widget build(BuildContext context) {
+      return Listener(
+        behavior: HitTestBehavior.opaque,
 
-            behavior: HitTestBehavior.opaque, 
-      onTapDown: (_) => onPressed(),
-      onTapUp: (_) => onReleased(),
-      onTapCancel: onReleased,
-      child: Container(
-        width: 70,
-        height: 70,
-                        alignment: Alignment.center,   // pastikan icon benar-benar center
+        // 🟢 Finger touches screen
+        onPointerDown: (_) {
+          onPressed();
+        },
 
-        decoration: BoxDecoration(
-          color: isPressed ? Colors.white.withOpacity(0.3) : Colors.transparent,
-          // Menggunakan BoxShape.circle untuk membuat bagian interaksi lebih intuitif
-          shape: BoxShape.circle,
+        // 🔴 Finger lifts
+        onPointerUp: (_) {
+          onReleased();
+        },
+
+        // ⚠️ Safety (gesture interrupted)
+        onPointerCancel: (_) {
+          onReleased();
+        },
+
+        child: Container(
+          width: 70,
+          height: 70,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isPressed
+                ? Colors.white.withOpacity(0.3)
+                : Colors.transparent,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: Colors.white,
+            size: 36,
+          ),
         ),
-
-        child: Icon(
-          icon,
-          color: Colors.white,
-          size: 36,
-        ),
-      ),
-      
-    );
-  }
+      );
+    }
 }
 
 class ActionButtonsWidget extends StatelessWidget {
