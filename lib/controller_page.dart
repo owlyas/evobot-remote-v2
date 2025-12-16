@@ -998,18 +998,28 @@ class ControllerPageState extends State<ControllerPage> {
                 children: [
                   Row(
                     children: [
-                      _buildTopButton(Icons.arrow_back, () {
-                        Navigator.pop(context);
-                      }),
-                      SizedBox(width: 12),
-                      _buildTopButton(Icons.wifi, () {
-                        showWifiDialog();
-                        print('WiFi button pressed');
-                      }),
-                      //     SizedBox(width: 12),
-                      //     _buildTopButton(Icons.bluetooth, () {
-                      //       showBluetoothDialog();
-                      //     }),
+                      _buildTopButton(
+                        Icons.arrow_back,
+                        () {
+                          Navigator.pop(context);
+                        },
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      _buildTopButton(
+                        Icons.wifi,
+                        () {
+                          showWifiDialog();
+                          print('WiFi button pressed');
+                        },
+                        isLocked: true, // 🔒 SAME BEHAVIOR AS ActionButton
+                      ),
+
+                      // SizedBox(width: 12),
+                      // _buildTopButton(Icons.bluetooth, () {
+                      //   showBluetoothDialog();
+                      // }),
                     ],
                   ),
                   Row(
@@ -1163,73 +1173,100 @@ class ControllerPageState extends State<ControllerPage> {
     );
   }
 
-  Widget _buildTopButton(IconData icon, VoidCallback onTap) {
+  Widget _buildTopButton(
+    IconData icon,
+    VoidCallback onPressed, {
+    bool isLocked = false,
+  }) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 50,
-        height: 50,
+      onTap: isLocked ? null : onPressed, // 🔒 disable tap
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
+          color: isLocked
+              ? Colors.grey.withOpacity(0.15)
+              : Colors.grey.withOpacity(0.25),
+          border: Border.all(
+            width: 2,
+            color: isLocked ? Colors.grey : Colors.white,
+          ),
         ),
-        child: Icon(
-          icon,
-          color: Colors.black,
-          size: 26,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isLocked ? Colors.grey : Colors.white,
+            ),
+
+            // 🔒 Lock overlay (same logic as ActionButton)
+            if (isLocked)
+              const Positioned(
+                bottom: 4,
+                right: 4,
+                child: Icon(
+                  Icons.lock,
+                  size: 14,
+                  color: Colors.redAccent,
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 
-    Widget _buildToggleSwitch() {
-      return GestureDetector(
-        onTap: () {
-          if (isConnected) {
-            disconnectDevice();
-          } else {
-            showBluetoothDialog();
-          }
-        },
-        child: AnimatedContainer(
+  Widget _buildToggleSwitch() {
+    return GestureDetector(
+      onTap: () {
+        if (isConnected) {
+          disconnectDevice();
+        } else {
+          showBluetoothDialog();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 58,
+        height: 34,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: isConnected
+              ? const Color(0xFF34C759) // 🟢 connected
+              : const Color(0xFFB0B0B0), // ⚪ gray when disconnected
+        ),
+        padding: const EdgeInsets.all(3),
+        child: AnimatedAlign(
           duration: const Duration(milliseconds: 200),
-          width: 58,
-          height: 34,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: isConnected
-                ? const Color(0xFF34C759) // 🟢 connected
-                : const Color(0xFFB0B0B0), // ⚪ gray when disconnected
-          ),
-          padding: const EdgeInsets.all(3),
-          child: AnimatedAlign(
-            duration: const Duration(milliseconds: 200),
-            alignment:
-                isConnected ? Alignment.centerRight : Alignment.centerLeft,
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isConnected
-                    ? Colors.white
-                    : Colors.grey.shade300, // ⚪ gray knob
-                boxShadow: isConnected
-                    ? [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [], // ❌ no shadow when disconnected
-              ),
+          alignment:
+              isConnected ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isConnected
+                  ? Colors.white
+                  : Colors.grey.shade300, // ⚪ gray knob
+              boxShadow: isConnected
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [], // ❌ no shadow when disconnected
             ),
           ),
         ),
-      );
-    }
+      ),
+    );
   }
+}
 
 class DPadWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
@@ -1562,55 +1599,64 @@ class ActionButton extends StatelessWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: isLocked ? null : onToggle, // 🔒 disable when locked
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+    @override
+    Widget build(BuildContext context) {
+      return GestureDetector(
+        onTap: isLocked ? null : onToggle, // 🔒 disable when locked
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
 
-        width: size,
-        height: size,
+          width: size,
+          height: size,
 
-        decoration: BoxDecoration(
-          color: isLocked
-              ? Colors.grey.withOpacity(0.15)
-              : isOn
-                  ? Colors.green.withOpacity(0.25)
-                  : Colors.grey.withOpacity(0.2),
-          shape: BoxShape.circle,
-          border: Border.all(
+          decoration: BoxDecoration(
             color: isLocked
-                ? Colors.grey
+                ? Colors.grey.withOpacity(0.15)
                 : isOn
-                    ? Colors.green
-                    : Colors.grey,
-            width: 3,
+                    ? Colors.green.withOpacity(0.25)
+                    : Colors.grey.withOpacity(0.2),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isLocked
+                  ? Colors.grey
+                  : isOn
+                      ? Colors.green
+                      : Colors.grey,
+              width: 3,
+            )
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // SVG Icon (true centered)
+              Opacity(
+                opacity: isLocked ? 0.4 : 1.0,
+                child: SizedBox(
+                  width: 30,   // fixed box
+                  height: 30,
+                  child: Center(
+                    child: SvgPicture.string(
+                      _getSvgIcon(label),
+                      width: 26,
+                      height: 26,
+                      fit: BoxFit.contain,
+                      clipBehavior: Clip.none,                 // ✅ allow overflow
+                      allowDrawingOutsideViewBox: true,        // ✅ FIX CUT LINES
+                    ),
+                  ),
+                ),
+              ),
+
+              // 🔒 Lock overlay (true center)
+              if (isLocked)
+                const Icon(
+                  Icons.lock,
+                  size: 18,
+                  color: Colors.grey,
+                ),
+            ],
           ),
         ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // SVG Icon
-            Opacity(
-              opacity: isLocked ? 0.4 : 1.0,
-              child: SvgPicture.string(
-                _getSvgIcon(label),
-                width: label == 'Y' ? 30 : 28,
-                height: label == 'Y' ? 30 : 28,
-              ),
-            ),
-
-            // 🔒 Lock overlay
-            if (isLocked)
-              const Icon(
-                Icons.lock,
-                size: 18,
-                color: Colors.grey,
-              ),
-          ],
-        ),
-      ),
-    );
+      );
+    }
   }
-}
