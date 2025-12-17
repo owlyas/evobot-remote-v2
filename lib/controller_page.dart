@@ -562,30 +562,28 @@ class ControllerPageState extends State<ControllerPage> {
   Future<void> sendData(String command) async {
     if (!mounted) return;
 
-  final device = connectedDevice;
-  if (device == null ||
-      rxCharacteristic == null ||
-      txCharacteristic == null) {
-    showError('Bluetooth not connected');
-    return;
-  }
+    final device = connectedDevice;
+    if (device == null || txCharacteristic == null) {
+      showError('Bluetooth not connected');
+      return;
+    }
 
-  final state = await device.connectionState.first;
-  if (state != BluetoothConnectionState.connected) {
-    setState(() => isConnected = false);
-    showError('Bluetooth disconnected');
-    return;
-  }
+    final state = await device.connectionState.first;
+    if (state != BluetoothConnectionState.connected) {
+      setState(() => isConnected = false);
+      showError('Bluetooth disconnected');
+      return;
+    }
 
-  try {
-    await txCharacteristic!.write(
-      command.codeUnits,
-      withoutResponse: true,
-    );
-    print('🚗 Sent move: $command');
-  } catch (e) {
-    showError('Send failed');
-  }
+    try {
+      await txCharacteristic!.write(
+        command.codeUnits,
+        withoutResponse: false,
+      );
+      print('🚗 Sent move: $command');
+    } catch (e) {
+      showError('Send failed');
+    }
   }
   
   void onButtonPressed(String button) {
@@ -956,24 +954,31 @@ class ControllerPageState extends State<ControllerPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: const Text("Voice 1"),
+                title: const Text("Perkenalan"),
                 onTap: () {
                   Navigator.pop(context);
-                  sendData("VOICE_1");
+                  sendData("001");
                 },
               ),
               ListTile(
-                title: const Text("Voice 2"),
+                title: const Text("Fitur"),
                 onTap: () {
                   Navigator.pop(context);
-                  sendData("VOICE_2");
+                  sendData("002");
                 },
               ),
               ListTile(
-                title: const Text("Stop"),
+                title: const Text("Bebas 1"),
                 onTap: () {
                   Navigator.pop(context);
-                  sendData("STOP");
+                  sendData("003");
+                },
+              ),
+              ListTile(
+                title: const Text("Bebas 2"),
+                onTap: () {
+                  Navigator.pop(context);
+                  sendData("004");
                 },
               ),
             ],
