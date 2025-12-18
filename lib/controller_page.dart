@@ -346,18 +346,18 @@ class ControllerPageState extends State<ControllerPage> {
   Future<void> startScan() async {
     if (isScanning) return;
 
-    // 🔴 1. Ensure Bluetooth is ON
-    if (!await FlutterBluePlus.isOn) {
+    // ✅ 1. Ensure Bluetooth is ON
+    final adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
       showError('Bluetooth is turned off');
       return;
     }
 
-    // 🔴 2. Request permissions (ANDROID SAFE)
+    // ✅ 2. Request permissions (Android-safe)
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
 
       if (androidInfo.version.sdkInt >= 31) {
-        // Android 12+
         final scanStatus = await Permission.bluetoothScan.request();
         final connectStatus = await Permission.bluetoothConnect.request();
 
@@ -366,7 +366,6 @@ class ControllerPageState extends State<ControllerPage> {
           return;
         }
       } else {
-        // Android 6–11
         final locationStatus = await Permission.location.request();
         if (!locationStatus.isGranted) {
           showError('Location permission required for BLE');
@@ -375,18 +374,19 @@ class ControllerPageState extends State<ControllerPage> {
       }
     }
 
+    // ✅ 3. Reset state
     setStateIfMounted(() {
       isScanning = true;
       scanResults.clear();
     });
 
-    // 🔴 3. Stop previous scan safely
+    // ✅ 4. Stop any previous scan
     await FlutterBluePlus.stopScan().catchError((_) {});
-    
+
     try {
-      // 🔴 4. Start scan
+      // ✅ 5. Start scan (ONLY ONCE)
       await FlutterBluePlus.startScan(
-      timeout: Duration(seconds: _scanTimeoutSec),
+        timeout: Duration(seconds: _scanTimeoutSec),
       );
 
       scanSubscription?.cancel();
@@ -400,9 +400,12 @@ class ControllerPageState extends State<ControllerPage> {
         });
       });
 
-      // 🔴 5. Safety stop
+      // ✅ 6. Safety stop
       stopTimer?.cancel();
-      stopTimer = Timer(Duration(seconds: _scanTimeoutSec), stopScan);
+      stopTimer = Timer(
+        Duration(seconds: _scanTimeoutSec),
+        stopScan,
+      );
     } catch (e) {
       print('❌ BLE scan error: $e');
       showError('Failed to scan Bluetooth devices');
@@ -473,7 +476,7 @@ class ControllerPageState extends State<ControllerPage> {
               await c.setNotifyValue(true);
 
               // 🔔 LISTEN to notifications
-              txSubscription = c.value.listen((value) {
+              txSubscription = c.lastValueStream.listen((value) {
                 final response = String.fromCharCodes(value).trim();
                 print('📥 TX received: $response');
 
@@ -577,7 +580,6 @@ class ControllerPageState extends State<ControllerPage> {
       return;
     }
 
-
     const moveCommands = {'F', 'B', 'L', 'R', 'S'};
 
     try {
@@ -585,8 +587,8 @@ class ControllerPageState extends State<ControllerPage> {
       if (moveCommands.contains(command)) {
         print(command);
         await rxCharacteristic!.write(
-        command.codeUnits,
-        withoutResponse: false,
+          command.codeUnits,
+          withoutResponse: false,
       );
         print('🚗 Sent move: $command');
         return;
@@ -596,13 +598,12 @@ class ControllerPageState extends State<ControllerPage> {
       final completer = Completer<void>();
       late StreamSubscription sub;
 
-      sub = txCharacteristic!.value.listen((value) {
-        if (String.fromCharCodes(value).trim() == 'OK' &&
-            !completer.isCompleted) {
+      sub = txCharacteristic!.lastValueStream.listen((value) {
+        final response = String.fromCharCodes(value).trim();
+        if (response == 'OK' && !completer.isCompleted) {
           completer.complete();
         }
       });
-
 
       await rxCharacteristic!.write(
         command.codeUnits,
@@ -714,11 +715,12 @@ class ControllerPageState extends State<ControllerPage> {
             setDialogState(() {});
           }
 
-          return WillPopScope(
-            onWillPop: () async {
-              // ensure dialog timer cancelled if user uses back button
-              _dialogStopScanTimer?.cancel();
-              return true;
+          return PopScope(
+            canPop: true,
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop) {          
+              _stopScanForDialog(); // cleanup only
+              }
             },
             child: AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -837,15 +839,16 @@ class ControllerPageState extends State<ControllerPage> {
                   onPressed: () async {
                     if (isScanning) {
                       _stopScanForDialog();
+                      Navigator.pop(context);
                     } else {
                       await _startScanForDialog();
+                      setDialogState(() {}); // only update if dialog stays open
                     }
-                    setDialogState(() {}); // update dialog UI
                   },
                 ),
                 TextButton(
-                  onPressed: () {
-                    _dialogStopScanTimer?.cancel();
+                  onPressed: () { 
+                    _stopScanForDialog();
                     Navigator.pop(context);
                   },
                   child: Text('Close', style: TextStyle(color: Colors.grey[700])),
@@ -947,6 +950,7 @@ class ControllerPageState extends State<ControllerPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  //Wifi Button
                   Row(
                     children: [
                       _buildTopButton(Icons.arrow_back, () {
@@ -958,11 +962,12 @@ class ControllerPageState extends State<ControllerPage> {
                         print('WiFi button pressed');
                       }),
                       //     SizedBox(width: 12),
-                      //     _buildTopButton(Icons.bluetooth, () {
+                      //     _buildTopButton(Icons.bluetooth, (){
                       //       showBluetoothDialog();
                       //     }),
                     ],
                   ),
+                  // Bluetooth Button Status & Toggle
                   Row(
                     children: [
                       Text(
@@ -1077,8 +1082,6 @@ class ControllerPageState extends State<ControllerPage> {
                         ),
 
                         // Kanan: Action Buttons
-
-                         
                         Expanded(
                           flex: 2,
                           child: Center(
