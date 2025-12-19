@@ -362,18 +362,19 @@ class ControllerPageState extends State<ControllerPage> {
     });
 
     // Cancel any previous subscription
-    scanSubscription?.cancel();
+    await scanSubscription?.cancel();
 
-    // Start scanning
     try {
-      // Ensure any previous scan is stopped first
+      // Stop any existing scan first
       await FlutterBluePlus.stopScan().catchError((_) {});
+
+      // Start scanning
       await FlutterBluePlus.startScan(
         timeout: Duration(seconds: _scanTimeoutSec),
         androidUsesFineLocation: true,
       );
 
-      // Subscribe to scan results and throttle UI updates
+      // Subscribe to scan results
       scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         final now = DateTime.now();
         if (now.difference(_lastScanUpdate) >= _scanUpdateInterval) {
@@ -382,13 +383,12 @@ class ControllerPageState extends State<ControllerPage> {
             scanResults = results;
           });
         } else {
-          // still update internal list so we always have latest for tapping,
-          // but avoid calling setState too often
+          // Always update internal list but avoid too frequent UI refresh
           scanResults = results;
         }
       });
 
-      // Also set a stop timer as a safeguard (in case plugin timeout behaves differently)
+      // Safety timer to stop scan
       stopTimer?.cancel();
       stopTimer = Timer(Duration(seconds: _scanTimeoutSec), () async {
         await stopScan().catchError((_) {});
@@ -446,24 +446,28 @@ class ControllerPageState extends State<ControllerPage> {
       final services = await device.discoverServices();
 
       for (final service in services) {
+        print('Service: ${service.uuid}');
+
         if (service.uuid.toString().toLowerCase() == targetServiceUUID) {
           print('✅ Target service found');
 
           for (final c in service.characteristics) {
-            // RX = phone → device
-            if (c.uuid.toString().toLowerCase() == rxCharUUID) {
+            print('  Characteristic: ${c.uuid}, properties: ${c.properties}');
+
+            // Find writable RX characteristic (phone → device)
+            if ((c.properties.write || c.properties.writeWithoutResponse)) {
               rxCharacteristic = c;
-              print('✅ RX Characteristic found');
+              print('✅ RX Characteristic (writable) found: ${c.uuid}');
             }
 
-            // TX = device → phone
-            if (c.uuid.toString().toLowerCase() == txCharUUID) {
+            // Find notify-enabled TX characteristic (device → phone)
+            if (c.properties.notify) {
               txCharacteristic = c;
 
-              await c.setNotifyValue(true);
+              // Enable notifications
+              await txCharacteristic!.setNotifyValue(true);
 
-              // 🔔 LISTEN to notifications
-              txSubscription = c.value.listen((value) {
+              txSubscription = txCharacteristic!.value.listen((value) {
                 final response = String.fromCharCodes(value).trim();
                 print('📥 TX received: $response');
 
@@ -474,8 +478,15 @@ class ControllerPageState extends State<ControllerPage> {
                 }
               });
 
-              print('✅ TX Characteristic found & listening');
+              print('✅ TX Characteristic (notify) found & listening: ${c.uuid}');
             }
+          }
+
+          if (rxCharacteristic == null) {
+            print('⚠️ No writable RX characteristic found in this service');
+          }
+          if (txCharacteristic == null) {
+            print('⚠️ No notify TX characteristic found in this service');
           }
         }
       }
@@ -559,30 +570,43 @@ class ControllerPageState extends State<ControllerPage> {
   // -------------------------
   // Send data safely
   // -------------------------
-  Future<void> sendData(String command) async {
+  Future<void> sendData(String command, {bool showFeedback = true}) async {
     if (!mounted) return;
 
-    final device = connectedDevice;
-    if (device == null || txCharacteristic == null) {
-      showError('Bluetooth not connected');
+    if (connectedDevice == null || rxCharacteristic == null) {
+      if (showFeedback) showError('Bluetooth not connected');
       return;
     }
 
-    final state = await device.connectionState.first;
+    final state = await connectedDevice!.connectionState.first;
     if (state != BluetoothConnectionState.connected) {
       setState(() => isConnected = false);
-      showError('Bluetooth disconnected');
+      if (showFeedback) showError('Bluetooth disconnected');
+      return;
+    }
+
+    // Only send non-empty commands
+    if (command.isEmpty) {
+      print('⚠️ Empty command, not sending');
       return;
     }
 
     try {
-      await txCharacteristic!.write(
+      // Write with response
+      await rxCharacteristic!.write(
         command.codeUnits,
         withoutResponse: false,
       );
-      print('🚗 Sent move: $command');
+
+      print('🚗 Sent command: $command');
+
+      // Show success only for non-movement commands
+      if (showFeedback && !['F', 'B', 'L', 'R', 'S'].contains(command)) {
+        showSuccess('Command "$command" sent!');
+      }
     } catch (e) {
-      showError('Send failed');
+      print('❌ Send failed: $e');
+      if (showFeedback) showError('Send failed: $e');
     }
   }
   
@@ -655,7 +679,14 @@ class ControllerPageState extends State<ControllerPage> {
 
   void showSuccess(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Remove any existing SnackBar immediately
+    messenger.clearSnackBars();
+
+    // Show the new one
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.green,
@@ -1453,7 +1484,7 @@ class DPadButton extends StatelessWidget {
         ),
       );
     }
-}
+  }
 
 class ActionButtonsWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
