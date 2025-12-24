@@ -1227,7 +1227,7 @@ class ControllerPageState extends State<ControllerPage> {
 
   Widget _buildFloatingVideo() {
     // Raspberry Pi stream webpage
-    const String streamUrl = 'http://192.168.219.19:8000/video';
+    const String streamUrl = 'http://10.42.0.1:8000/video';
 
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
