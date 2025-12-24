@@ -22,6 +22,8 @@ class ControllerPage extends StatefulWidget {
 }
 
 class ControllerPageState extends State<ControllerPage> {
+  String batteryLevel = "--"; // Default saat belum ada data
+  String? connectedWifiSSID;  // Menyimpan nama Wi-Fi yang terhubung
   bool isConnected = false;
   bool isScanning = false;
   BluetoothDevice? connectedDevice;
@@ -467,6 +469,13 @@ class ControllerPageState extends State<ControllerPage> {
                 final response = String.fromCharCodes(value).trim();
                 print('📥 TX received: $response');
 
+                if (response.startsWith("BAT:")) {
+                  setStateIfMounted(() {
+                    // Ambil angkanya saja (misal "BAT:85" jadi "85")
+                    batteryLevel = response.split(":")[1]; 
+                  });
+                }
+
                 // Complete waiting command if any
                 if (_responseCompleter != null &&
                     !_responseCompleter!.isCompleted) {
@@ -514,6 +523,7 @@ class ControllerPageState extends State<ControllerPage> {
           connectedDevice = null;
           txCharacteristic = null;
           rxCharacteristic = null;
+          batteryLevel = "--"; 
         });
 
         showSuccess('Bluetooth Disconnected');
@@ -923,6 +933,9 @@ class ControllerPageState extends State<ControllerPage> {
       );
 
       if (connected) {
+        setStateIfMounted(() {
+          connectedWifiSSID = ssid;
+        });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to $ssid')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect to $ssid')));
@@ -1011,10 +1024,63 @@ class ControllerPageState extends State<ControllerPage> {
                           _buildTopButton(Icons.wifi, () {
                             showWifiDialog();
                           }),
+                          if (connectedWifiSSID != null) 
+                            Padding(
+                              padding: const EdgeInsets.only(left: 12.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    "Wi-Fi",
+                                    style: TextStyle(color: Colors.white54, fontSize: 10),
+                                  ),
+                                  Text(
+                                    connectedWifiSSID!,
+                                    style: const TextStyle(
+                                      color: Colors.greenAccent, 
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                       Row(
                         children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            margin: const EdgeInsets.only(right: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.black26,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white24)
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  // Ganti icon berdasarkan level baterai (simple logic)
+                                  (int.tryParse(batteryLevel) ?? 0) > 20 
+                                      ? Icons.battery_std 
+                                      : Icons.battery_alert, 
+                                  color: (int.tryParse(batteryLevel) ?? 0) < 20 && batteryLevel != "--"
+                                      ? Colors.redAccent 
+                                      : Colors.white,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "$batteryLevel%",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           Text(
                             isConnected
                                 ? (connectedDevice?.platformName ?? 'Connected')
