@@ -8,6 +8,10 @@ import 'dart:io';
 import 'package:get/get.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // Import ini
+import 'package:webview_flutter/webview_flutter.dart';
+
+
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -1215,34 +1219,36 @@ class ControllerPageState extends State<ControllerPage> {
           // -----------------------------------------------------------
           // LAYER 2: Floating Video Player (Paling Atas)
           // -----------------------------------------------------------
-         if (buttonStates['A'] == true)
           _buildFloatingVideo(),
         ],
       ),
     );
   }
 
-Widget _buildFloatingVideo() {
+  Widget _buildFloatingVideo() {
+    // Raspberry Pi stream webpage
+    const String streamUrl = 'http://192.168.219.19:8000/video';
+
+    final controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..loadRequest(Uri.parse(streamUrl));
+
     return Positioned(
-      top: 0, // Posisi mutlak di paling atas
+      top: 0,
       left: 0,
       right: 0,
-      // HAPUS widget SafeArea di sini agar video naik sampai ke balik status bar/poni
       child: Align(
         alignment: Alignment.topCenter,
         child: Container(
-          // HAPUS margin top (sebelumnya margin: const EdgeInsets.only(top: 10))
-          margin: EdgeInsets.zero, 
-          
-          height: 220, // Tinggi video (sesuaikan jika perlu)
+          height: 220,
           decoration: BoxDecoration(
             color: Colors.black,
-            // Hapus border radius atas jika ingin kotak sempurna menempel di bezel
             borderRadius: const BorderRadius.only(
               bottomLeft: Radius.circular(12),
               bottomRight: Radius.circular(12),
             ),
-            border: Border.all(color: const Color.fromARGB(255, 255, 255, 255), width: 2),
+            border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.5),
@@ -1251,38 +1257,14 @@ Widget _buildFloatingVideo() {
               ),
             ],
           ),
-          // Rasio 4:3
-          child: AspectRatio(
-            aspectRatio: 4 / 3,
-            child: ClipRRect(
-              // Samakan radius dengan container (hanya bawah yang melengkung)
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(10),
-                bottomRight: Radius.circular(10),
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // --- Placeholder Video Feed ---
-                  Container(
-                    color: Colors.grey[900],
-                    child: const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.videocam_off,
-                              color: Colors.white54, size: 40),
-                          SizedBox(height: 8),
-                          Text("No Video Feed",
-                              style: TextStyle(color: Colors.white54)),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                
-                ],
-              ),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(10),
+              bottomRight: Radius.circular(10),
+            ),
+            child: AspectRatio(
+              aspectRatio: 4 / 3,
+              child: WebViewWidget(controller: controller),
             ),
           ),
         ),

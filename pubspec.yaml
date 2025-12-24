@@ -11,11 +11,15 @@ dependencies:
   flutter:
     sdk: flutter
 
+    # web_socket_channel: ^3.0.0
+
   # --- Video Player (Versi Baru Support Null Safety) ---
   flutter_mjpeg: ^2.0.4
 
   # --- Icon (Versi 2.0.5 agar akur dengan mjpeg) ---
   flutter_svg: 2.0.5
+  
+  webview_flutter: ^4.8.0
 
   # --- Library Lainnya ---
   flutter_blue_plus: ^1.32.11
