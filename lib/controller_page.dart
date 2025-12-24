@@ -12,6 +12,7 @@ import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // Import ini
 import 'package:webview_flutter/webview_flutter.dart';
 
 
+
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const String rxCharUUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -1160,7 +1161,7 @@ class ControllerPageState extends State<ControllerPage> {
 
   Widget _buildFloatingVideo() {
     // Raspberry Pi stream webpage
-    const String streamUrl = 'http://192.168.5.198:8000/video';
+    const String streamUrl = 'http://192.168.219.19:8000/video';
 
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)

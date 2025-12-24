@@ -11,6 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+    # web_socket_channel: ^3.0.0
+
   # --- Video Player (Versi Baru Support Null Safety) ---
   flutter_mjpeg: ^2.0.4
 
