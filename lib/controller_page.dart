@@ -80,10 +80,15 @@ class ControllerPageState extends State<ControllerPage> {
       DeviceOrientation.landscapeRight,
     ]);
 
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
     FlutterBluePlus.adapterState.listen((state) {
       print('Bluetooth Adapter State: $state');
     });
   }
+
+  
+
 
   @override
   void dispose() {
@@ -93,6 +98,8 @@ class ControllerPageState extends State<ControllerPage> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+
+SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     scanSubscription?.cancel();
     connectionSubscription?.cancel();
@@ -475,7 +482,6 @@ class ControllerPageState extends State<ControllerPage> {
 
                 if (response.startsWith("BAT:")) {
                   setStateIfMounted(() {
-                    // Ambil angkanya saja (misal "BAT:85" jadi "85")
                     batteryLevel = response.split(":")[1]; 
                   });
                 }
