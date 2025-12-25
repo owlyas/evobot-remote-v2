@@ -31,6 +31,11 @@ public final class GeneratedPluginRegistrant {
       Log.e(TAG, "Error registering plugin webview_flutter_android, io.flutter.plugins.webviewflutter.WebViewFlutterPlugin", e);
     }
     try {
+      flutterEngine.getPlugins().add(new io.flutter.plugins.wifi_info_flutter.WifiInfoFlutterPlugin());
+    } catch (Exception e) {
+      Log.e(TAG, "Error registering plugin wifi_info_flutter, io.flutter.plugins.wifi_info_flutter.WifiInfoFlutterPlugin", e);
+    }
+    try {
       flutterEngine.getPlugins().add(new com.alternadom.wifiiot.WifiIotPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin wifi_iot, com.alternadom.wifiiot.WifiIotPlugin", e);

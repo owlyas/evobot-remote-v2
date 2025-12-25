@@ -10,8 +10,7 @@ import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // Import ini
 import 'package:webview_flutter/webview_flutter.dart';
-
-
+import 'package:wifi_info_flutter/wifi_info_flutter.dart';
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -45,6 +44,9 @@ class ControllerPageState extends State<ControllerPage> {
   StreamSubscription<BluetoothConnectionState>? connectionSubscription;
   String? _lastErrorMessage;
   DateTime? _lastErrorTime;
+  String? connectedSsid;
+  String? connectedIp;
+  bool isWifiConnected = false;
 
   Map<String, bool> buttonStates = {
     'UP': false,
@@ -192,6 +194,19 @@ class ControllerPageState extends State<ControllerPage> {
         );
       },
     );
+  }
+
+  Future<void> loadConnectedWifiInfo() async {
+    try {
+      final info = WifiInfo();
+      connectedSsid = await info.getWifiName();
+      connectedIp = await info.getWifiIP();
+
+      isWifiConnected =
+          connectedSsid != null && connectedSsid!.isNotEmpty;
+    } catch (e) {
+      isWifiConnected = false;
+    }
   }
 
   void showWifiDialog() {
@@ -573,33 +588,44 @@ class ControllerPageState extends State<ControllerPage> {
   // -------------------------
   // Send data safely
   // -------------------------
-  Future<void> sendData(String command) async {
+  Future<void> sendData(String command, {bool showFeedback = true}) async {
     if (!mounted) return;
 
-  final device = connectedDevice;
-  if (device == null ||
-      rxCharacteristic == null ||
-      txCharacteristic == null) {
-    showError('Bluetooth not connected');
-    return;
-  }
+    if (connectedDevice == null || rxCharacteristic == null) {
+      if (showFeedback) showError('Bluetooth not connected');
+      return;
+    }
 
-  final state = await device.connectionState.first;
-  if (state != BluetoothConnectionState.connected) {
-    setState(() => isConnected = false);
-    showError('Bluetooth disconnected');
-    return;
-  }
+    final state = await connectedDevice!.connectionState.first;
+    if (state != BluetoothConnectionState.connected) {
+      setState(() => isConnected = false);
+      if (showFeedback) showError('Bluetooth disconnected');
+      return;
+    }
 
-  try {
-    await txCharacteristic!.write(
-      command.codeUnits,
-      withoutResponse: true,
-    );
-    print('🚗 Sent move: $command');
-  } catch (e) {
-    showError('Send failed');
-  }
+    // Only send non-empty commands
+    if (command.isEmpty) {
+      print('⚠️ Empty command, not sending');
+      return;
+    }
+
+    try {
+      // Write with response
+      await rxCharacteristic!.write(
+        command.codeUnits,
+        withoutResponse: false,
+      );
+
+      print('🚗 Sent command: $command');
+
+      // Show success only for non-movement commands
+      if (showFeedback && !['F', 'B', 'L', 'R', 'S'].contains(command)) {
+        showSuccess('Command "$command" sent!');
+      }
+    } catch (e) {
+      print('❌ Send failed: $e');
+      if (showFeedback) showError('Send failed: $e');
+    }
   }
   
   void onButtonPressed(String button) {
@@ -1227,7 +1253,7 @@ class ControllerPageState extends State<ControllerPage> {
 
   Widget _buildFloatingVideo() {
     // Raspberry Pi stream webpage
-    const String streamUrl = 'http://10.42.0.1:8000/video';
+    const String streamUrl = 'http://10.42.0.1:8000';
 
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)

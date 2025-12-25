@@ -24,6 +24,12 @@
 @import webview_flutter_wkwebview;
 #endif
 
+#if __has_include(<wifi_info_flutter/WifiInfoFlutterPlugin.h>)
+#import <wifi_info_flutter/WifiInfoFlutterPlugin.h>
+#else
+@import wifi_info_flutter;
+#endif
+
 #if __has_include(<wifi_iot/WifiIotPlugin.h>)
 #import <wifi_iot/WifiIotPlugin.h>
 #else
@@ -36,6 +42,7 @@
   [FlutterBluePlusPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterBluePlusPlugin"]];
   [PermissionHandlerPlugin registerWithRegistrar:[registry registrarForPlugin:@"PermissionHandlerPlugin"]];
   [WebViewFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"WebViewFlutterPlugin"]];
+  [WifiInfoFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"WifiInfoFlutterPlugin"]];
   [WifiIotPlugin registerWithRegistrar:[registry registrarForPlugin:@"WifiIotPlugin"]];
 }
 
