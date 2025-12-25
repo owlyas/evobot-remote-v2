@@ -12,6 +12,12 @@
 @import flutter_blue_plus_darwin;
 #endif
 
+#if __has_include(<network_info_plus/FPPNetworkInfoPlusPlugin.h>)
+#import <network_info_plus/FPPNetworkInfoPlusPlugin.h>
+#else
+@import network_info_plus;
+#endif
+
 #if __has_include(<permission_handler_apple/PermissionHandlerPlugin.h>)
 #import <permission_handler_apple/PermissionHandlerPlugin.h>
 #else
@@ -24,12 +30,6 @@
 @import webview_flutter_wkwebview;
 #endif
 
-#if __has_include(<wifi_info_flutter/WifiInfoFlutterPlugin.h>)
-#import <wifi_info_flutter/WifiInfoFlutterPlugin.h>
-#else
-@import wifi_info_flutter;
-#endif
-
 #if __has_include(<wifi_iot/WifiIotPlugin.h>)
 #import <wifi_iot/WifiIotPlugin.h>
 #else
@@ -40,9 +40,9 @@
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [FlutterBluePlusPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterBluePlusPlugin"]];
+  [FPPNetworkInfoPlusPlugin registerWithRegistrar:[registry registrarForPlugin:@"FPPNetworkInfoPlusPlugin"]];
   [PermissionHandlerPlugin registerWithRegistrar:[registry registrarForPlugin:@"PermissionHandlerPlugin"]];
   [WebViewFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"WebViewFlutterPlugin"]];
-  [WifiInfoFlutterPlugin registerWithRegistrar:[registry registrarForPlugin:@"WifiInfoFlutterPlugin"]];
   [WifiIotPlugin registerWithRegistrar:[registry registrarForPlugin:@"WifiIotPlugin"]];
 }
 

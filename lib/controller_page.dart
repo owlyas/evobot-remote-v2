@@ -10,7 +10,7 @@ import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // Import ini
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:wifi_info_flutter/wifi_info_flutter.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -89,9 +89,6 @@ class ControllerPageState extends State<ControllerPage> {
     });
   }
 
-  
-
-
   @override
   void dispose() {
     SystemChrome.setPreferredOrientations([
@@ -113,58 +110,106 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // Wi-Fi scanning (with permissions & safe timer)
   // -------------------------
   Future<void> startWifiScan() async {
-    // Request location permission (required on modern Android for Wi-Fi scanning)
     final status = await Permission.locationWhenInUse.request();
     if (!status.isGranted) {
-      showError('Location permission is required for WiFi scanning.');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Location permission required')));
       return;
     }
 
-    setStateIfMounted(() => isWifiScanning = true);
+    setState(() => isWifiScanning = true);
 
     try {
-      final List<WifiNetwork>? results = await WiFiForIoTPlugin.loadWifiList();
-
-      setStateIfMounted(() {
+      final results = await WiFiForIoTPlugin.loadWifiList();
+      if (!mounted) return;
+      setState(() {
         wifiNetworks = results ?? [];
-        // keep isWifiScanning true until timer fires or user stops manually
       });
 
-      // Auto stop after _scanTimeoutSec seconds if still scanning
       stopTimer?.cancel();
       stopTimer = Timer(Duration(seconds: _scanTimeoutSec), () {
-        if (mounted && isWifiScanning) {
-          stopWifiScan();
-        }
+        if (mounted && isWifiScanning) stopWifiScan();
       });
     } catch (e) {
-      print('Error during WiFi scan: $e');
-      setStateIfMounted(() => isWifiScanning = false);
-      showError('Failed to scan WiFi: $e');
+      if (!mounted) return;
+      stopWifiScan();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Scan failed: $e')));
     }
   }
 
   void stopWifiScan() {
     stopTimer?.cancel();
-    // Note: depending on plugin, there might not be an explicit stop call.
-    // We at least clear the UI scanning state.
-    setStateIfMounted(() => isWifiScanning = false);
+    if (!mounted) return;
+    setState(() => isWifiScanning = false);
+  }
+
+  Future<void> connectToWifi(String ssid, String password) async {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Connecting to $ssid...')));
+    try {
+      final connected = await WiFiForIoTPlugin.connect(
+        ssid,
+        password: password.isNotEmpty ? password : null,
+        joinOnce: true,
+        security: password.isNotEmpty ? NetworkSecurity.WPA : NetworkSecurity.NONE,
+      );
+
+      if (!mounted) return;
+
+      if (connected) {
+        setState(() => connectedWifiSSID = ssid);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Connected to $ssid')));
+        connectedIp = await WiFiForIoTPlugin.getIP();
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed to connect to $ssid')));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error connecting: $e')));
+    }
+  }
+
+  /// Disconnect from current Wi-Fi
+  Future<void> disconnectWifi() async {
+    try {
+      await WiFiForIoTPlugin.disconnect();
+      if (!mounted) return;
+      setState(() {
+        connectedWifiSSID = null;
+        connectedIp = null;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Wi-Fi disconnected')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error disconnecting: $e')));
+    }
   }
 
   void showWifiPasswordDialog(String ssid) {
-    TextEditingController pass = TextEditingController();
+    final TextEditingController passwordController = TextEditingController();
 
     showDialog(
       context: context,
-      builder: (context) {
+      barrierDismissible: false,
+      builder: (dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          title: Text("Connect to $ssid"),
+          title: Text(
+            "Connect to $ssid",
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
           content: TextField(
-            controller: pass,
+            controller: passwordController,
             obscureText: true,
+            autofocus: true,
             decoration: const InputDecoration(
               labelText: "Password",
               border: OutlineInputBorder(),
@@ -172,19 +217,25 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
           ),
           actions: [
             TextButton(
+              onPressed: () {
+                passwordController.dispose();
+                Navigator.pop(dialogContext);
+              },
               child: const Text("Cancel"),
-              onPressed: () => Navigator.pop(context),
             ),
             ElevatedButton(
-              child: const Text("Connect"),
               onPressed: () async {
-                Navigator.pop(context);
+                final password = passwordController.text.trim();
+                passwordController.dispose();
+                Navigator.pop(dialogContext);
 
-                bool success = await WiFiForIoTPlugin.connect(
+                final success = await WiFiForIoTPlugin.connect(
                   ssid,
-                  password: pass.text,
+                  password: password,
                   security: NetworkSecurity.WPA,
                 );
+
+                if (!mounted) return;
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -196,6 +247,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                   ),
                 );
               },
+              child: const Text("Connect"),
             ),
           ],
         );
@@ -205,14 +257,19 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   Future<void> loadConnectedWifiInfo() async {
     try {
-      final info = WifiInfo();
-      connectedSsid = await info.getWifiName();
-      connectedIp = await info.getWifiIP();
-
-      isWifiConnected =
-          connectedSsid != null && connectedSsid!.isNotEmpty;
+      final ssid = await WiFiForIoTPlugin.getSSID();
+      final ip = await WiFiForIoTPlugin.getIP();
+      if (!mounted) return;
+      setState(() {
+        connectedWifiSSID = ssid;
+        connectedIp = ip;
+      });
     } catch (e) {
-      isWifiConnected = false;
+      if (!mounted) return;
+      setState(() {
+        connectedWifiSSID = null;
+        connectedIp = null;
+      });
     }
   }
 
@@ -220,152 +277,133 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              backgroundColor: Colors.grey[50],
-              title: Row(
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Icon(Icons.wifi, color: Colors.blueAccent),
+                SizedBox(width: 10),
+                Text(
+                  'Wi-Fi Networks',
+                  style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 400,
+              child: Column(
                 children: [
-                  const Icon(Icons.wifi, color: Colors.blueAccent),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'WiFi Networks',
-                    style: TextStyle(
-                      color: Colors.blueAccent,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-
-              content: SizedBox(
-                width: double.maxFinite,
-                height: 400,
-                child: Column(
-                  children: [
-                    if (isWifiScanning)
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          children: [
-                            const CircularProgressIndicator(
-                              color: Colors.blueAccent,
-                              strokeWidth: 3,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              "Scanning for WiFi networks...",
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ],
-                        ),
+                  if (connectedWifiSSID != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: Row(
+                        children: [
+                          Text("Connected: ",
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          Text(
+                            connectedWifiSSID!,
+                            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                          ),
+                          Spacer(),
+                          TextButton(
+                            onPressed: () async {
+                              await disconnectWifi();
+                              setDialogState(() {});
+                            },
+                            child: Text('Disconnect'),
+                          )
+                        ],
                       ),
-
-
+                    ),
+                  if (isWifiScanning)
+                    Column(
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 8),
+                        Text(
+                          "Scanning Wi-Fi...",
+                          style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                    ),
                   Expanded(
                     child: wifiNetworks.isEmpty
                         ? Center(
                             child: Text(
                               isWifiScanning
-                                  ? "Searching nearby WiFi..."
-                                  : "No WiFi networks found.",
-                              style: const TextStyle(
-                                color: Color.fromARGB(255, 10, 10, 10),
-                              ),
+                                  ? "Searching nearby Wi-Fi..."
+                                  : "No Wi-Fi networks found",
                             ),
                           )
                         : ListView.separated(
                             itemCount: wifiNetworks.length,
-                            separatorBuilder: (_, __) =>
-                                Divider(color: Colors.grey[300]),
+                            separatorBuilder: (_, __) => Divider(),
                             itemBuilder: (context, index) {
                               final wifi = wifiNetworks[index];
                               final ssid = wifi.ssid ?? "Unknown";
-
-                               return ListTile(
-                                leading: const Icon(Icons.wifi,
-                                    color: Colors.blueAccent),
-                                title: Text(
-                                  ssid,
-                                  style: const TextStyle(
-                                    color: Color.fromARGB(255, 75, 75, 75),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  "Signal: ${wifi.level} dBm",
-                                  style:
-                                      TextStyle(color: Colors.grey[700]),
-                                ),
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  showWifiPasswordDialog(ssid);
+                              return ListTile(
+                                leading: Icon(Icons.wifi, color: Colors.blueAccent),
+                                title: Text(ssid),
+                                subtitle: Text("Signal: ${wifi.level} dBm"),
+                                onTap: () async {
+                                  final passwordController = TextEditingController();
+                                  await showDialog(
+                                    context: context,
+                                    builder: (context) {
+                                      return AlertDialog(
+                                        title: Text("Connect to $ssid"),
+                                        content: TextField(
+                                          controller: passwordController,
+                                          obscureText: true,
+                                          decoration: InputDecoration(
+                                            labelText: "Password",
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            child: Text("Cancel"),
+                                            onPressed: () => Navigator.pop(context),
+                                          ),
+                                          ElevatedButton(
+                                            child: Text("Connect"),
+                                            onPressed: () async {
+                                              Navigator.pop(context);
+                                              await connectToWifi(ssid, passwordController.text);
+                                              setDialogState(() {});
+                                            },
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
                                 },
                               );
                             },
                           ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-
-              actionsPadding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-
-              actions: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isWifiScanning
-                        ? Colors.redAccent
-                        : Colors.blueAccent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: Icon(
-                    isWifiScanning ? Icons.stop : Icons.search,
-                    color: Colors.white,
-                  ),
-                  label: Text(
-                    isWifiScanning ? 'Stop Scan' : 'Start Scan',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  onPressed: () {
-                    if (isWifiScanning) {
-                      stopWifiScan();
-                    } else {
-                      startWifiScan();
-
-                      // auto stop after 10 sec (same as Bluetooth)
-                      Future.delayed(const Duration(seconds: 10), () {
-                        if (isWifiScanning) {
-                          stopWifiScan();
-                          setDialogState(() {}); // refresh dialog
-                        }
-                      });
-                    }
-                    setDialogState(() {});
-                  },
-                ),
-
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    'Close',
-                    style: TextStyle(color: Colors.grey[700]),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+            ),
+            actions: [
+              ElevatedButton.icon(
+                icon: Icon(isWifiScanning ? Icons.stop : Icons.search),
+                label: Text(isWifiScanning ? 'Stop Scan' : 'Start Scan'),
+                onPressed: () {
+                  if (isWifiScanning) stopWifiScan();
+                  else startWifiScan();
+                  setDialogState(() {});
+                },
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Close'),
+              ),
+            ],
+          );
+        });
       },
     );
   }
@@ -953,36 +991,6 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     );
   }
 
-  /// Helper connection function used above
-  Future<void> connectToWifi(String ssid, String password, void Function(void Function()) setDialogState) async {
-    // show connecting snackbar or update dialog state
-    setDialogState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connecting to $ssid...')));
-
-    try {
-      // Choose the security type if you know it; WPA is common. If open network, omit password.
-      final bool connected = await WiFiForIoTPlugin.connect(
-        ssid,
-        password: password.isNotEmpty ? password : null,
-        joinOnce: true,
-        security: password.isNotEmpty ? NetworkSecurity.WPA : NetworkSecurity.NONE,
-      );
-
-      if (connected) {
-        setStateIfMounted(() {
-          connectedWifiSSID = ssid;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to $ssid')));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect to $ssid')));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error connecting: $e')));
-    } finally {
-      setDialogState(() {});
-    }
-  }
-
   void onToggle(String key) {
     setState(() {
       buttonStates[key] = !buttonStates[key]!;
@@ -1060,24 +1068,43 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                           _buildTopButton(Icons.wifi, () {
                             showWifiDialog();
                           }),
-                          if (connectedWifiSSID != null) 
+                          if (connectedWifiSSID != null)
                             Padding(
                               padding: const EdgeInsets.only(left: 12.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text(
-                                    "Wi-Fi",
-                                    style: TextStyle(color: Colors.white54, fontSize: 10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        "Wi-Fi",
+                                        style: TextStyle(color: Colors.white54, fontSize: 10),
+                                      ),
+                                      Text(
+                                        connectedWifiSSID!,
+                                        style: const TextStyle(
+                                          color: Colors.greenAccent,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    connectedWifiSSID!,
-                                    style: const TextStyle(
-                                      color: Colors.greenAccent, 
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14
-                                    ),
+                                  const SizedBox(width: 6),
+                                  Switch.adaptive(
+                                    value: isWifiConnected, // boolean variable tracking connection
+                                    onChanged: (value) {
+                                      // optionally allow user to toggle Wi-Fi manually
+                                      if (value && !isWifiConnected) {
+                                        showWifiDialog(); // connect
+                                      } else if (!value && isWifiConnected) {
+                                        disconnectWifi(); // your method to disconnect
+                                      }
+                                      setState(() {}); // refresh UI
+                                    },
+                                    activeColor: Colors.greenAccent,
                                   ),
                                 ],
                               ),
@@ -1251,7 +1278,72 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
           // -----------------------------------------------------------
           // LAYER 2: Floating Video Player (Paling Atas)
           // -----------------------------------------------------------
-          _buildFloatingVideo(),
+          // _buildFloatingVideo(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWifiList(BuildContext dialogContext) {
+    if (wifiNetworks.isEmpty) {
+      return Center(
+        child: Text(
+          isWifiScanning
+              ? "Searching nearby WiFi..."
+              : "No WiFi networks found.",
+          style: const TextStyle(color: Colors.black87),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      itemCount: wifiNetworks.length,
+      separatorBuilder: (_, __) => Divider(color: Colors.grey[300]),
+      itemBuilder: (context, index) {
+        final wifi = wifiNetworks[index];
+        final ssid = wifi.ssid?.isNotEmpty == true
+            ? wifi.ssid!
+            : "Unknown";
+
+        return ListTile(
+          leading: const Icon(Icons.wifi, color: Colors.blueAccent),
+          title: Text(
+            ssid,
+            style: const TextStyle(
+              color: Color(0xFF4B4B4B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            "Signal: ${wifi.level} dBm",
+            style: TextStyle(color: Colors.grey[700]),
+          ),
+          onTap: () {
+            Navigator.pop(dialogContext);
+            showWifiPasswordDialog(ssid);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildScanningIndicator() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          const CircularProgressIndicator(
+            color: Colors.blueAccent,
+            strokeWidth: 3,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            "Scanning for WiFi networks...",
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontStyle: FontStyle.italic,
+            ),
+          ),
         ],
       ),
     );
