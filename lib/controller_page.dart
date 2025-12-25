@@ -1247,7 +1247,8 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       child: Align(
         alignment: Alignment.topCenter,
         child: Container(
-          height: 220,
+          // height: 220,
+          height: MediaQuery.of(context).size.height * 0.25,
           decoration: BoxDecoration(
             color: Colors.black,
             borderRadius: const BorderRadius.only(
