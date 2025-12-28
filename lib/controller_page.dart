@@ -1019,39 +1019,121 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       sendData("${key}isOFF");  // Example: Yoff
     }
   }
-  
-  void showVoiceDialog() {
+  void showCameraDialog() {
+   
+    final List<Map<String, String>> voiceList = [
+      {"label": "camera 1", "cmd": "VOICE_1"},
+      {"label": "Voice 2", "cmd": "VOICE_2"},
+      {"label": "Voice 3", "cmd": "VOICE_3"},
+      {"label": "Voice 4", "cmd": "VOICE_4"}, // Contoh item ke-4
+      {"label": "Siren", "cmd": "SIREN_ON"},  // Contoh item ke-5
+     
+    ];
+
     showDialog(
-      context: context, // 👈 use State context
+      context: context, 
       builder: (_) {
         return AlertDialog(
-          title: const Text("Play Voice"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text("Voice 1"),
-                onTap: () {
-                  Navigator.pop(context);
-                  sendData("VOICE_1");
-                },
-              ),
-              ListTile(
-                title: const Text("Voice 2"),
-                onTap: () {
-                  Navigator.pop(context);
-                  sendData("VOICE_2");
-                },
-              ),
-              ListTile(
-                title: const Text("Stop"),
-                onTap: () {
-                  Navigator.pop(context);
-                  sendData("STOP");
-                },
-              ),
-            ],
+          title: const Text("Camera"),
+          contentPadding: const EdgeInsets.only(top: 20, bottom: 20), 
+          
+          content: SizedBox(
+            width: double.maxFinite, 
+            
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 24), 
+              shrinkWrap: true, 
+              physics: const BouncingScrollPhysics(), 
+              
+              itemCount: voiceList.length,
+              separatorBuilder: (context, index) => const Divider(), 
+              
+              itemBuilder: (context, index) {
+                final item = voiceList[index];
+                bool isStop = item['cmd'] == 'STOP';
+
+                return ListTile(
+                  
+                  title: Text(
+                    item['label']!,
+                    style: TextStyle(
+                      color: const Color.fromARGB(221, 255, 255, 255),
+                      fontWeight: FontWeight.normal,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    sendData(item['cmd']!);
+                  },
+                );
+              },
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  void showVoiceDialog() {
+   final List<Map<String, String>> voiceList = [
+      {"label": "camera 1", "cmd": "VOICE_1"},
+      {"label": "Voice 2", "cmd": "VOICE_2"},
+      {"label": "Voice 3", "cmd": "VOICE_3"},
+      {"label": "Voice 4", "cmd": "VOICE_4"}, // Contoh item ke-4
+      {"label": "Siren", "cmd": "SIREN_ON"},  // Contoh item ke-5
+     
+    ];
+
+    showDialog(
+      context: context, 
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Suara"),
+          contentPadding: const EdgeInsets.only(top: 20, bottom: 20), 
+          
+          content: SizedBox(
+            width: double.maxFinite, 
+            
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 24), 
+              shrinkWrap: true, 
+              physics: const BouncingScrollPhysics(), 
+              
+              itemCount: voiceList.length,
+              separatorBuilder: (context, index) => const Divider(), 
+              
+              itemBuilder: (context, index) {
+                final item = voiceList[index];
+                bool isStop = item['cmd'] == 'STOP';
+
+                return ListTile(
+                  
+                  title: Text(
+                    item['label']!,
+                    style: TextStyle(
+                      color: const Color.fromARGB(221, 255, 255, 255),
+                      fontWeight: FontWeight.normal,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    sendData(item['cmd']!);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
         );
       },
     );
@@ -1261,6 +1343,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                                   buttonStates: buttonStates,
                                   onToggle: onToggle,
                                   onVoicePressed: showVoiceDialog,
+                                  onCameraPressed: showCameraDialog,
                                 ),
                               ),
                             ),
@@ -1597,12 +1680,15 @@ class DPadButton extends StatelessWidget {
 class ActionButtonsWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
   final Function(String) onToggle;   // <-- NEW: toggle function
-  final VoidCallback onVoicePressed; 
+  final VoidCallback onVoicePressed;
+  final VoidCallback onCameraPressed;
+
 
   const ActionButtonsWidget({
     required this.buttonStates,
     required this.onToggle,
     required this.onVoicePressed,
+    required this.onCameraPressed,
   });
 
   @override
@@ -1612,7 +1698,7 @@ class ActionButtonsWidget extends StatelessWidget {
       height: 180,
       child: Stack(
         children: [
-          // X button (Top)
+          // X button (Camera)
           Positioned(
             top: 5,
             left: 60,
@@ -1620,11 +1706,12 @@ class ActionButtonsWidget extends StatelessWidget {
               label: 'X',
               isOn: buttonStates['X']!,
               isLocked: false,
-              onToggle: () => onToggle('X'),
+              onToggle: onCameraPressed, // 👈 CALL DIALOG
+
             ),
           ),
 
-          // Y button (Left)
+          // Y button (Ultrasonik)
           Positioned(
             left: 5,
             top: 60,
@@ -1636,7 +1723,7 @@ class ActionButtonsWidget extends StatelessWidget {
             ),
           ),
 
-          // A button (Right)
+          // A button (Asap)
           Positioned(
             right: 5,
             top: 60,
@@ -1648,7 +1735,7 @@ class ActionButtonsWidget extends StatelessWidget {
             ),
           ),
 
-          // B button (Bottom)
+          // B button (Mic)
           Positioned(
             bottom: 5,
             left: 60,
