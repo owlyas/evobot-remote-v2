@@ -10,8 +10,8 @@ import 'package:wifi_iot/wifi_iot.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart'; // Import ini
 import 'package:webview_flutter/webview_flutter.dart';
-
-
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 
 // UUIDs for UART communication
 const String targetServiceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -201,157 +201,208 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     );
   }
 
+  Future<void> checkEvobotConnection(BuildContext context) async {
+    final connectivity = await Connectivity().checkConnectivity();
+
+    if (connectivity != ConnectivityResult.wifi) {
+      _showResultDialog(
+        context,
+        success: false,
+        message: "Device is not connected to Wi-Fi.",
+      );
+      return;
+    }
+
+    final info = NetworkInfo();
+    String? ssid = await info.getWifiName();
+
+    // Android sometimes returns SSID with quotes
+    ssid = ssid?.replaceAll('"', '');
+
+    if (ssid == "Evobot") {
+      _showResultDialog(
+        context,
+        success: true,
+        message: "Connected to Evobot Wi-Fi.",
+      );
+    } else {
+      _showResultDialog(
+        context,
+        success: false,
+        message: "Connected to \"$ssid\", not Evobot.",
+      );
+    }
+  }
+
+  void _showResultDialog(
+    BuildContext context, {
+    required bool success,
+    required String message,
+  }) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              success ? Icons.check_circle : Icons.error,
+              color: success ? Colors.green : Colors.red,
+            ),
+            const SizedBox(width: 8),
+            Text(success ? "Connected" : "Not Connected"),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
   void showWifiDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.grey[50],
+
+          title: Row(
+            children: const [
+              Icon(Icons.wifi, color: Colors.blueAccent),
+              SizedBox(width: 10),
+              Text(
+                'Wi-Fi Connection',
+                style: TextStyle(
+                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              backgroundColor: Colors.grey[50],
-              title: Row(
+            ],
+          ),
+
+          content: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.7,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.wifi, color: Colors.blueAccent),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'WiFi Networks',
-                    style: TextStyle(
-                      color: Colors.blueAccent,
-                      fontWeight: FontWeight.bold,
+
+                  // HOW TO BOX
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color.fromARGB(255, 255, 255, 255),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.blueAccent.withOpacity(0.3),
+                      ),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "How to Connect to Evobot",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blueAccent,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          "1. Turn on Raspberry Pi (Evobot).\n"
+                          "2. Open Wi-Fi settings on your phone.\n"
+                          "3. Connect to Wi-Fi named \"Evobot\".\n"
+                          "4. Return to this app.\n"
+                          "5. Press the button below to check connection.",
+                          style: TextStyle(fontSize: 15, 
+                          color: Color.fromARGB(255, 70, 69, 69)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.wifi_tethering),
+                      label: const Text("Check Evobot Connection"),
+                      onPressed: () {
+                        checkEvobotConnection(context);
+                      },
                     ),
                   ),
                 ],
               ),
+            ),
+          ),
 
-              content: SizedBox(
-                width: double.maxFinite,
-                height: 400,
-                child: Column(
-                  children: [
-                    if (isWifiScanning)
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          children: [
-                            const CircularProgressIndicator(
-                              color: Colors.blueAccent,
-                              strokeWidth: 3,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              "Scanning for WiFi networks...",
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-
-                  Expanded(
-                    child: wifiNetworks.isEmpty
-                        ? Center(
-                            child: Text(
-                              isWifiScanning
-                                  ? "Searching nearby WiFi..."
-                                  : "No WiFi networks found.",
-                              style: const TextStyle(
-                                color: Color.fromARGB(255, 10, 10, 10),
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: wifiNetworks.length,
-                            separatorBuilder: (_, __) =>
-                                Divider(color: Colors.grey[300]),
-                            itemBuilder: (context, index) {
-                              final wifi = wifiNetworks[index];
-                              final ssid = wifi.ssid ?? "Unknown";
-
-                               return ListTile(
-                                leading: const Icon(Icons.wifi,
-                                    color: Colors.blueAccent),
-                                title: Text(
-                                  ssid,
-                                  style: const TextStyle(
-                                    color: Color.fromARGB(255, 75, 75, 75),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  "Signal: ${wifi.level} dBm",
-                                  style:
-                                      TextStyle(color: Colors.grey[700]),
-                                ),
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  showWifiPasswordDialog(ssid);
-                                },
-                              );
-                            },
-                          ),
-                    ),
-                  ],
-                ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Close',
+                style: TextStyle(color: Colors.grey[700]),
               ),
-
-              actionsPadding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-
-              actions: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isWifiScanning
-                        ? Colors.redAccent
-                        : Colors.blueAccent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: Icon(
-                    isWifiScanning ? Icons.stop : Icons.search,
-                    color: Colors.white,
-                  ),
-                  label: Text(
-                    isWifiScanning ? 'Stop Scan' : 'Start Scan',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  onPressed: () {
-                    if (isWifiScanning) {
-                      stopWifiScan();
-                    } else {
-                      startWifiScan();
-
-                      // auto stop after 10 sec (same as Bluetooth)
-                      Future.delayed(const Duration(seconds: 10), () {
-                        if (isWifiScanning) {
-                          stopWifiScan();
-                          setDialogState(() {}); // refresh dialog
-                        }
-                      });
-                    }
-                    setDialogState(() {});
-                  },
-                ),
-
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    'Close',
-                    style: TextStyle(color: Colors.grey[700]),
-                  ),
-                ),
-              ],
-            );
-          },
+            ),
+          ],
         );
       },
+    );
+  }
+
+  Future<void> checkWifiConnection(BuildContext context) async {
+    final result = await Connectivity().checkConnectivity();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              result == ConnectivityResult.wifi
+                  ? Icons.check_circle
+                  : Icons.error,
+              color: result == ConnectivityResult.wifi
+                  ? Colors.green
+                  : Colors.red,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              result == ConnectivityResult.wifi
+                  ? "Connected"
+                  : "Not Connected",
+            ),
+          ],
+        ),
+        content: Text(
+          result == ConnectivityResult.wifi
+              ? "Your phone is connected to a Wi-Fi network.\n"
+                "Make sure it is the Raspberry Pi Wi-Fi."
+              : "Your phone is not connected to Wi-Fi.\n"
+                "Please connect to the Raspberry Pi Wi-Fi first.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          )
+        ],
+      ),
     );
   }
 
