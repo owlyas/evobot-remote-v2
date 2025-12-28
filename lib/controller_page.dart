@@ -1145,6 +1145,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                                 child: Container(
                                   constraints:
                                       const BoxConstraints(maxWidth: 200),
+                                      padding: const EdgeInsets.only(top: 40),
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
@@ -1248,7 +1249,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         alignment: Alignment.topCenter,
         child: Container(
           // height: 220,
-          height: MediaQuery.of(context).size.height * 0.25,
+          height: MediaQuery.of(context).size.height * 0.45,
           decoration: BoxDecoration(
             color: Colors.black,
             borderRadius: const BorderRadius.only(
