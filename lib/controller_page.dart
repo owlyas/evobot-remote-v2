@@ -1717,8 +1717,15 @@ class ActionButtonsWidget extends StatelessWidget {
               label: 'X',
               isOn: buttonStates['X']!,
               isLocked: false,
-              onToggle: onCameraPressed, // 👈 CALL DIALOG
+             onToggle: () {
+                if (buttonStates['X'] == false) {
+                  onCameraPressed();
+                  onToggle('X');
 
+                } else {
+                  onToggle('X'); 
+                }
+              },
             ),
           ),
 
@@ -1730,7 +1737,16 @@ class ActionButtonsWidget extends StatelessWidget {
               label: 'Y',
               isOn: buttonStates['Y']!,
               isLocked: false,
-              onToggle: onUltrasonicPressed, // 👈 CALL DIALOG
+
+              onToggle: () {
+                if (buttonStates['Y'] == false) {
+                  onUltrasonicPressed();
+                  onToggle('Y');
+
+                } else {
+                  onToggle('Y'); 
+                }
+              },
             ),
           ),
 
@@ -1752,9 +1768,18 @@ class ActionButtonsWidget extends StatelessWidget {
             left: 60,
             child: ActionButton(
               label: 'B',
-              isOn: false,
+              isOn: buttonStates['B']!,
               isLocked: false,
-              onToggle: onVoicePressed, // 👈 CALL DIALOG
+
+              onToggle: () {
+                if (buttonStates['B'] == false) {
+                  onVoicePressed();
+                  onToggle('B');
+                   
+                } else {
+                  onToggle('B'); 
+                }
+              },
             ),
           ),
         ],
