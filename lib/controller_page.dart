@@ -529,7 +529,31 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
               // 🔔 LISTEN to notifications
               txSubscription = c.value.listen((value) {
                 final response = String.fromCharCodes(value).trim();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar(); // Hapus notif lama biar gak numpuk
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("Robot Kirim: $response"), // <--- Ini yang bikin muncul di layar
+                      backgroundColor: Colors.blue,
+                      duration: const Duration(milliseconds: 800), // Muncul sebentar (0.8 detik)
+                    ),
+                  );
+                }
+
+                print('DEBUG TERIMA: "$response"');
                 print('📥 TX received: $response');
+
+                if (response == "SELESAI") {
+                print("SELESAI = DITERIMA");
+                
+                setStateIfMounted(() {
+                  Map<String, bool> updatedStates = Map.from(buttonStates);
+                  updatedStates['X'] = false;
+                  buttonStates = updatedStates;
+                  });
+
+                  print("✅ UI HARUSNYA UPDATE SEKARANG");
+                }
 
                 if (response.startsWith("BAT:")) {
                   setStateIfMounted(() {
@@ -630,34 +654,54 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // -------------------------
   // Send data safely
   // -------------------------
-  Future<void> sendData(String command) async {
-    if (!mounted) return;
+   Future<void> sendData(String command) async {
+    final state = await connectedDevice!.connectionState.first;
+    if (state != BluetoothConnectionState.connected) {
+      setState(() => isConnected = false);
+      showError('Bluetooth disconnected');
+      return;
+    }
 
-  final device = connectedDevice;
-  if (device == null ||
-      rxCharacteristic == null ||
-      txCharacteristic == null) {
-    showError('Bluetooth not connected');
-    return;
-  }
+    const moveCommands = {'F', 'B', 'L', 'R', 'S'};
 
-  final state = await device.connectionState.first;
-  if (state != BluetoothConnectionState.connected) {
-    setState(() => isConnected = false);
-    showError('Bluetooth disconnected');
-    return;
-  }
+    try {
+      // 🚗 Movement → NO WAIT
+      if (moveCommands.contains(command)) {
+        print(command);
+        await rxCharacteristic!.write(
+          command.codeUnits,
+          withoutResponse: false,
+      );
+        print('🚗 Sent move: $command');
+        return;
+      }
 
-  try {
-    await txCharacteristic!.write(
-      command.codeUnits,
-      withoutResponse: true,
-    );
-    print('🚗 Sent move: $command');
-  } catch (e) {
-    showError('Send failed');
+      // 🔐 Control → WAIT FOR OK
+      final completer = Completer<void>();
+      late StreamSubscription sub;
+
+      sub = txCharacteristic!.lastValueStream.listen((value) {
+        final response = String.fromCharCodes(value).trim();
+        if (response == 'OK' && !completer.isCompleted) {
+          completer.complete();
+        }
+      });
+
+      await rxCharacteristic!.write(
+        command.codeUnits,
+        withoutResponse: false,
+      );
+
+      await completer.future.timeout(const Duration(seconds: 2));
+      await sub.cancel();
+
+      print('✅ Command OK: $command');
+    } catch (e) {
+      print('❌ Send failed: $e');
+      showError('Command failed');
+    }
   }
-  }
+  
   
   void onButtonPressed(String button) {
     if (!isConnected) return;
