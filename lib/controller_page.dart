@@ -1022,11 +1022,10 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   void showCameraDialog() {
    
     final List<Map<String, String>> voiceList = [
-      {"label": "camera 1", "cmd": "VOICE_1"},
-      {"label": "Voice 2", "cmd": "VOICE_2"},
-      {"label": "Voice 3", "cmd": "VOICE_3"},
-      {"label": "Voice 4", "cmd": "VOICE_4"}, // Contoh item ke-4
-      {"label": "Siren", "cmd": "SIREN_ON"},  // Contoh item ke-5
+      {"label": "CAM OPTION 1", "cmd": "011"},
+      {"label": "CAM OPTION 2", "cmd": "012"},
+      {"label": "CAM OPTION 3", "cmd": "013"},
+      {"label": "CAM OPTION 4", "cmd": "014"}, // Contoh item ke-4
      
     ];
 
@@ -1034,12 +1033,13 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       context: context, 
       builder: (_) {
         return AlertDialog(
-          title: const Text("Camera"),
+          title: const Text("Camera Streaming Options"),
           contentPadding: const EdgeInsets.only(top: 20, bottom: 20), 
           
           content: SizedBox(
-            width: double.maxFinite, 
-            
+            width: 320, 
+            height: 100,
+
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 24), 
               shrinkWrap: true, 
@@ -1081,11 +1081,10 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
   void showVoiceDialog() {
    final List<Map<String, String>> voiceList = [
-      {"label": "camera 1", "cmd": "VOICE_1"},
-      {"label": "Voice 2", "cmd": "VOICE_2"},
-      {"label": "Voice 3", "cmd": "VOICE_3"},
-      {"label": "Voice 4", "cmd": "VOICE_4"}, // Contoh item ke-4
-      {"label": "Siren", "cmd": "SIREN_ON"},  // Contoh item ke-5
+      {"label": "VO OPTION 1", "cmd": "001"},
+      {"label": "VO OPTION 2", "cmd": "002"},
+      {"label": "VO OPTION 3", "cmd": "003"},
+      {"label": "VO OPTION 4", "cmd": "004"}, // Contoh item ke-4
      
     ];
 
@@ -1093,11 +1092,12 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       context: context, 
       builder: (_) {
         return AlertDialog(
-          title: const Text("Suara"),
+          title: const Text("Voice Options"),
           contentPadding: const EdgeInsets.only(top: 20, bottom: 20), 
           
           content: SizedBox(
-            width: double.maxFinite, 
+            width: 320, 
+            height: 100,
             
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 24), 
@@ -1138,6 +1138,66 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       },
     );
   }
+
+void showUltrasonicDialog() {
+   final List<Map<String, String>> voiceList = [
+      {"label": "ULT OPTION 1", "cmd": "021"},
+      {"label": "ULT OPTION 2", "cmd": "022"},
+  
+     
+    ];
+
+    showDialog(
+      context: context, 
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Ultrasonic Options"),
+          contentPadding: const EdgeInsets.only(top: 20, bottom: 20), 
+          
+          content: SizedBox(
+            width: 320, 
+            height: 100,
+            
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 24), 
+              shrinkWrap: true, 
+              physics: const BouncingScrollPhysics(), 
+              
+              itemCount: voiceList.length,
+              separatorBuilder: (context, index) => const Divider(), 
+              
+              itemBuilder: (context, index) {
+                final item = voiceList[index];
+                bool isStop = item['cmd'] == 'STOP';
+
+                return ListTile(
+                  
+                  title: Text(
+                    item['label']!,
+                    style: TextStyle(
+                      color: const Color.fromARGB(221, 255, 255, 255),
+                      fontWeight: FontWeight.normal,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    sendData(item['cmd']!);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
  @override
   Widget build(BuildContext context) {
@@ -1344,6 +1404,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                                   onToggle: onToggle,
                                   onVoicePressed: showVoiceDialog,
                                   onCameraPressed: showCameraDialog,
+                                  onUltrasonicPressed: showUltrasonicDialog,    
                                 ),
                               ),
                             ),
@@ -1682,13 +1743,14 @@ class ActionButtonsWidget extends StatelessWidget {
   final Function(String) onToggle;   // <-- NEW: toggle function
   final VoidCallback onVoicePressed;
   final VoidCallback onCameraPressed;
-
+  final VoidCallback onUltrasonicPressed;
 
   const ActionButtonsWidget({
     required this.buttonStates,
     required this.onToggle,
     required this.onVoicePressed,
     required this.onCameraPressed,
+    required this.onUltrasonicPressed,  
   });
 
   @override
@@ -1706,8 +1768,15 @@ class ActionButtonsWidget extends StatelessWidget {
               label: 'X',
               isOn: buttonStates['X']!,
               isLocked: false,
-              onToggle: onCameraPressed, // 👈 CALL DIALOG
+             onToggle: () {
+                if (buttonStates['X'] == false) {
+                  onCameraPressed();
+                  onToggle('X');
 
+                } else {
+                  onToggle('X'); 
+                }
+              },
             ),
           ),
 
@@ -1719,7 +1788,16 @@ class ActionButtonsWidget extends StatelessWidget {
               label: 'Y',
               isOn: buttonStates['Y']!,
               isLocked: false,
-              onToggle: () => onToggle('Y'),
+
+              onToggle: () {
+                if (buttonStates['Y'] == false) {
+                  onUltrasonicPressed();
+                  onToggle('Y');
+
+                } else {
+                  onToggle('Y'); 
+                }
+              },
             ),
           ),
 
@@ -1741,9 +1819,18 @@ class ActionButtonsWidget extends StatelessWidget {
             left: 60,
             child: ActionButton(
               label: 'B',
-              isOn: false,
+              isOn: buttonStates['B']!,
               isLocked: false,
-              onToggle: onVoicePressed, // 👈 CALL DIALOG
+
+              onToggle: () {
+                if (buttonStates['B'] == false) {
+                  onVoicePressed();
+                  onToggle('B');
+                   
+                } else {
+                  onToggle('B'); 
+                }
+              },
             ),
           ),
         ],
