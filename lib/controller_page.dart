@@ -45,6 +45,8 @@ class ControllerPageState extends State<ControllerPage> {
   StreamSubscription<BluetoothConnectionState>? connectionSubscription;
   String? _lastErrorMessage;
   DateTime? _lastErrorTime;
+  bool dpadEnabled = true;
+  late final WebViewController _videoController;
 
   Map<String, bool> buttonStates = {
     'UP': false,
@@ -80,15 +82,19 @@ class ControllerPageState extends State<ControllerPage> {
       DeviceOrientation.landscapeRight,
     ]);
 
+    _videoController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..loadRequest(
+        Uri.parse('http://10.42.0.1:8000/video'),
+      );
+
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     FlutterBluePlus.adapterState.listen((state) {
       print('Bluetooth Adapter State: $state');
     });
   }
-
-  
-
 
   @override
   void dispose() {
@@ -654,7 +660,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // -------------------------
   // Send data safely
   // -------------------------
-   Future<void> sendData(String command) async {
+  Future<void> sendData(String command) async {
     final state = await connectedDevice!.connectionState.first;
     if (state != BluetoothConnectionState.connected) {
       setState(() => isConnected = false);
@@ -663,25 +669,34 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
 
     const moveCommands = {'F', 'B', 'L', 'R', 'S'};
+    const disableCommands = {'001', '002', '003', '004', '022'};
 
     try {
-      // 🚗 Movement → NO WAIT
+      // 🔒 Disable DPad
+      if (disableCommands.contains(command)) {
+        setState(() => dpadEnabled = false);
+      }
+
+      // 🚗 Movement (no wait)
       if (moveCommands.contains(command)) {
-        print(command);
         await rxCharacteristic!.write(
           command.codeUnits,
           withoutResponse: false,
-      );
-        print('🚗 Sent move: $command');
+        );
         return;
       }
 
-      // 🔐 Control → WAIT FOR OK
       final completer = Completer<void>();
       late StreamSubscription sub;
 
       sub = txCharacteristic!.lastValueStream.listen((value) {
         final response = String.fromCharCodes(value).trim();
+
+        // 🔄 Re-enable on STOP
+        if (response == 'STOP') {
+          setState(() => dpadEnabled = true);
+        }
+
         if (response == 'OK' && !completer.isCompleted) {
           completer.complete();
         }
@@ -695,13 +710,11 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       await completer.future.timeout(const Duration(seconds: 2));
       await sub.cancel();
 
-      print('✅ Command OK: $command');
     } catch (e) {
-      print('❌ Send failed: $e');
+      setState(() => dpadEnabled = true); // safety
       showError('Command failed');
     }
   }
-  
   
   void onButtonPressed(String button) {
     if (!isConnected) return;
@@ -1057,19 +1070,19 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       buttonStates[key] = !buttonStates[key]!;
     });
 
-    if (buttonStates[key] == true) {
-      sendData("${key}isON");   // Example: Yon
-    } else {
-      sendData("${key}isOFF");  // Example: Yoff
-    }
+    // if (buttonStates[key] == true) {
+    //   sendData("${key}isON");   // Example: Yon
+    // } else {
+    //   sendData("${key}isOFF");  // Example: Yoff
+    // }
   }
   void showCameraDialog() {
    
     final List<Map<String, String>> voiceList = [
-      {"label": "CAM OPTION 1", "cmd": "011"},
-      {"label": "CAM OPTION 2", "cmd": "012"},
-      {"label": "CAM OPTION 3", "cmd": "013"},
-      {"label": "CAM OPTION 4", "cmd": "014"}, // Contoh item ke-4
+      {"label": "Forward Green", "cmd": "011"},
+      {"label": "Forward Yellow", "cmd": "012"},
+      {"label": "Forward Red", "cmd": "013"},
+      {"label": "Green Search", "cmd": "014"}, // Contoh item ke-4
      
     ];
 
@@ -1185,10 +1198,8 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
 void showUltrasonicDialog() {
    final List<Map<String, String>> voiceList = [
-      {"label": "ULT OPTION 1", "cmd": "021"},
-      {"label": "ULT OPTION 2", "cmd": "022"},
-  
-     
+      {"label": "Obstacle Detection", "cmd": "021"},
+      {"label": "Auto Drive", "cmd": "022"},
     ];
 
     showDialog(
@@ -1242,6 +1253,14 @@ void showUltrasonicDialog() {
     );
   }
 
+  void disableDPadButtons() {
+    setState(() {
+      buttonStates['UP'] = false;
+      buttonStates['DOWN'] = false;
+      buttonStates['LEFT'] = false;
+      buttonStates['RIGHT'] = false;
+    });
+  }
 
  @override
   Widget build(BuildContext context) {
@@ -1368,6 +1387,8 @@ void showUltrasonicDialog() {
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: DPadWidget(
+                                  key: ValueKey(dpadEnabled), // 🔥 forces rebuild on lock change
+                                  locked: !dpadEnabled,
                                   buttonStates: buttonStates,
                                   onButtonPressed: onButtonPressed,
                                   onButtonReleased: onButtonReleased,
@@ -1472,46 +1493,29 @@ void showUltrasonicDialog() {
   }
 
   Widget _buildFloatingVideo() {
-    // Raspberry Pi stream webpage
-    const String streamUrl = 'http://10.42.0.1:8000/video';
-
-    final controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black)
-      ..loadRequest(Uri.parse(streamUrl));
-
     return Positioned(
       top: 0,
       left: 0,
       right: 0,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: Container(
-          // height: 220,
-          height: MediaQuery.of(context).size.height * 0.45,
-          decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(12),
-              bottomRight: Radius.circular(12),
-            ),
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.45,
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(12),
+            bottomRight: Radius.circular(12),
           ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(10),
-              bottomRight: Radius.circular(10),
-            ),
-            child: AspectRatio(
-              aspectRatio: 4 / 3,
-              child: WebViewWidget(controller: controller),
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(10),
+            bottomRight: Radius.circular(10),
+          ),
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: WebViewWidget(
+              controller: _videoController, // ✅ now defined
             ),
           ),
         ),
@@ -1604,67 +1608,106 @@ class DPadWidget extends StatelessWidget {
   final Map<String, bool> buttonStates;
   final Function(String) onButtonPressed;
   final Function(String) onButtonReleased;
+  final bool locked; // 🔒 NEW
 
   const DPadWidget({
+    super.key,
     required this.buttonStates,
     required this.onButtonPressed,
     required this.onButtonReleased,
+    this.locked = false, // 🔓 default unlocked
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 180, // Ukuran DPad sedikit diperbesar
+      width: 180,
       height: 180,
       child: Stack(
         children: [
           Center(
             child: CustomPaint(
-              size: Size(180, 180), // Sesuaikan ukuran CustomPaint
+              size: const Size(180, 180),
               painter: DPadBackgroundPainter(),
             ),
           ),
-          // Perhitungan posisi disesuaikan agar tetap berada di dalam Stack 180x180
+
+          // 🔼 UP
           Positioned(
             top: 5,
-            left: 55, // (180 - 40) / 2 = 70. 40 adalah lebar/tinggi DPadButton.
+            left: 55,
             child: DPadButton(
               icon: Icons.arrow_drop_up,
               isPressed: buttonStates['UP']!,
+              enabled: !locked, // 🔒
               onPressed: () => onButtonPressed('UP'),
               onReleased: () => onButtonReleased('UP'),
             ),
           ),
+
+          // 🔽 DOWN
           Positioned(
             bottom: 5,
             left: 55,
             child: DPadButton(
               icon: Icons.arrow_drop_down,
               isPressed: buttonStates['DOWN']!,
+              enabled: !locked,
               onPressed: () => onButtonPressed('DOWN'),
               onReleased: () => onButtonReleased('DOWN'),
             ),
           ),
+
+          // ◀ LEFT
           Positioned(
             left: 5,
             top: 55,
             child: DPadButton(
               icon: Icons.arrow_left,
               isPressed: buttonStates['LEFT']!,
+              enabled: !locked,
               onPressed: () => onButtonPressed('LEFT'),
               onReleased: () => onButtonReleased('LEFT'),
             ),
           ),
+
+          // ▶ RIGHT
           Positioned(
             right: 5,
             top: 55,
             child: DPadButton(
               icon: Icons.arrow_right,
               isPressed: buttonStates['RIGHT']!,
+              enabled: !locked,
               onPressed: () => onButtonPressed('RIGHT'),
               onReleased: () => onButtonReleased('RIGHT'),
             ),
           ),
+
+          // 🔒 Optional lock overlay
+          if (locked)
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !locked,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: locked ? 1.0 : 0.0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.lock,
+                        size: 36,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1729,57 +1772,61 @@ class DPadBackgroundPainter extends CustomPainter {
 class DPadButton extends StatelessWidget {
   final IconData icon;
   final bool isPressed;
+  final bool enabled; // 🔹 NEW
   final VoidCallback onPressed;
   final VoidCallback onReleased;
 
-  // Ukuran tombol DPad diseragamkan
-  final double size = 40.0;
-
   const DPadButton({
+    super.key,
     required this.icon,
     required this.isPressed,
     required this.onPressed,
     required this.onReleased,
+    this.enabled = true, // 🔹 default enabled
   });
 
   @override
-    Widget build(BuildContext context) {
-      return Listener(
-        behavior: HitTestBehavior.opaque,
+  Widget build(BuildContext context) {
+    return IgnorePointer( // 🔹 HARD block touch when disabled
+      ignoring: !enabled,
+      child: Opacity( // 🔹 visual feedback
+        opacity: enabled ? 1.0 : 0.45,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
 
-        // 🟢 Finger touches screen
-        onPointerDown: (_) {
-          onPressed();
-        },
+          // 🟢 Finger touches screen
+          onPointerDown: enabled ? (_) => onPressed() : null,
 
-        // 🔴 Finger lifts
-        onPointerUp: (_) {
-          onReleased();
-        },
+          // 🔴 Finger lifts
+          onPointerUp: enabled ? (_) => onReleased() : null,
 
-        // ⚠️ Safety (gesture interrupted)
-        onPointerCancel: (_) {
-          onReleased();
-        },
+          // ⚠️ Safety
+          onPointerCancel: enabled ? (_) => onReleased() : null,
 
-        child: Container(
-          width: 70,
-          height: 70,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isPressed
-                ? Colors.white.withOpacity(0.3)
-                : Colors.transparent,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 36,
+          child: Container(
+            width: 70,
+            height: 70,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: !enabled
+                  ? Colors.white.withOpacity(0.05)
+                  : isPressed
+                      ? Colors.white.withOpacity(0.3)
+                      : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 36,
+              color: enabled
+                  ? Colors.white
+                  : Colors.white.withOpacity(0.3),
+            ),
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 }
 
 class ActionButtonsWidget extends StatelessWidget {
