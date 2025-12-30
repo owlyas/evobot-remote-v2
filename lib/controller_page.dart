@@ -86,7 +86,7 @@ class ControllerPageState extends State<ControllerPage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
       ..loadRequest(
-        Uri.parse('http://10.42.0.1:8000/video'),
+        Uri.parse('http://10.42.0.1:8000'),
       );
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -208,9 +208,16 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Future<void> checkEvobotConnection(BuildContext context) async {
-    final connectivity = await Connectivity().checkConnectivity();
+    debugPrint("🔍 [WiFi CHECK] Starting Evobot connection check");
 
-    if (connectivity != ConnectivityResult.wifi) {
+    final connectivity = await Connectivity().checkConnectivity();
+    debugPrint("📡 [Connectivity] Result = $connectivity");
+
+    final isWifi = connectivity.contains(ConnectivityResult.wifi);
+
+    if (!isWifi) {
+      debugPrint("❌ [WiFi CHECK] Not connected to Wi-Fi");
+
       _showResultDialog(
         context,
         success: false,
@@ -219,19 +226,31 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       return;
     }
 
+    debugPrint("✅ [WiFi CHECK] Wi-Fi detected");
+
     final info = NetworkInfo();
     String? ssid = await info.getWifiName();
 
-    // Android sometimes returns SSID with quotes
-    ssid = ssid?.replaceAll('"', '');
+    debugPrint("📶 [WiFi CHECK] Raw SSID = $ssid");
 
-    if (ssid == "Evobot") {
+    final cleanSsid = ssid
+        ?.replaceAll('"', '')
+        .trim()
+        .toLowerCase();
+
+    debugPrint("🧹 [WiFi CHECK] Clean SSID = $cleanSsid");
+
+    if (cleanSsid == 'evobot') {
+      debugPrint("✅ [WiFi CHECK] Connected to EVOBOT");
+
       _showResultDialog(
         context,
         success: true,
         message: "Connected to Evobot Wi-Fi.",
       );
     } else {
+      debugPrint("❌ [WiFi CHECK] Wrong SSID");
+
       _showResultDialog(
         context,
         success: false,
@@ -537,17 +556,17 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                 final response = String.fromCharCodes(value).trim();
                 if (mounted) {
                   ScaffoldMessenger.of(context).hideCurrentSnackBar(); // Hapus notif lama biar gak numpuk
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text("Robot Kirim: $response"), // <--- Ini yang bikin muncul di layar
-                      backgroundColor: Colors.blue,
-                      duration: const Duration(milliseconds: 800), // Muncul sebentar (0.8 detik)
-                    ),
-                  );
+                  // ScaffoldMessenger.of(context).showSnackBar(
+                  //   SnackBar(
+                  //     content: Text("Robot Kirim: $response"), // <--- Ini yang bikin muncul di layar
+                  //     backgroundColor: Colors.blue,
+                  //     duration: const Duration(milliseconds: 800), // Muncul sebentar (0.8 detik)
+                  //   ),
+                  // );
                 }
 
-                print('DEBUG TERIMA: "$response"');
-                print('📥 TX received: $response');
+                // print('DEBUG TERIMA: "$response"');
+                // print('📥 TX received: $response');
 
                 if (response == "SELESAI") {
                 print("SELESAI = DITERIMA");
@@ -1262,7 +1281,7 @@ void showUltrasonicDialog() {
     });
   }
 
- @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF2C2E3A),
@@ -1497,25 +1516,61 @@ void showUltrasonicDialog() {
       top: 0,
       left: 0,
       right: 0,
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.45,
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: const BorderRadius.only(
-            bottomLeft: Radius.circular(12),
-            bottomRight: Radius.circular(12),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.45,
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(12),
+              bottomRight: Radius.circular(12),
+            ),
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          border: Border.all(color: Colors.white, width: 2),
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            bottomLeft: Radius.circular(10),
-            bottomRight: Radius.circular(10),
-          ),
-          child: AspectRatio(
-            aspectRatio: 4 / 3,
-            child: WebViewWidget(
-              controller: _videoController, // ✅ now defined
+          child: ClipRRect(
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(10),
+              bottomRight: Radius.circular(10),
+            ),
+            child: Stack(
+              children: [
+                // ---------------- VIDEO WEBVIEW ----------------
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: WebViewWidget(
+                    controller: _videoController,
+                  ),
+                ),
+
+                // ---------------- DEBUG OVERLAY ----------------
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      "📹 Stream: http://10.42.0.1:8000",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
