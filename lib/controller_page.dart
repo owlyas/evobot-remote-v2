@@ -1102,6 +1102,15 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   void onToggle(String key) {
+
+    if (key == 'Y' && buttonStates['Y'] == true) {
+      sendData("YisOFF"); // <--- Kirim pesan saat dimatikan
+    }
+
+    if (key == 'B' && buttonStates['B'] == true) {
+      sendData("BisOFF"); // <--- Kirim pesan saat dimatikan
+      }
+
     setState(() {
       buttonStates[key] = !buttonStates[key]!;
     });
