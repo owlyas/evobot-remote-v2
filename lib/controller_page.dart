@@ -568,18 +568,21 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                 // print('DEBUG TERIMA: "$response"');
                 // print('📥 TX received: $response');
 
-                if (response == "SELESAI") {
-                print("SELESAI = DITERIMA");
+                // if (response == "SELESAI") {
+                // print("SELESAI = DITERIMA");
                 
-                setStateIfMounted(() {
-                  Map<String, bool> updatedStates = Map.from(buttonStates);
-                  updatedStates['X'] = false;
-                  buttonStates = updatedStates;
-                  });
+                // setStateIfMounted(() {
+                //   Map<String, bool> updatedStates = Map.from(buttonStates);
+                //   updatedStates['X'] = false;
+                //   buttonStates = updatedStates;
+                //   });
 
-                  print("✅ UI HARUSNYA UPDATE SEKARANG");
+                //   print("✅ UI HARUSNYA UPDATE SEKARANG");
+                // }
+
+                if (response == "SELESAI") {
+                   _handleSelesaiMessage(); // <--- Panggil fungsi void di sini
                 }
-
                 if (response.startsWith("BAT:")) {
                   setStateIfMounted(() {
                     batteryLevel = response.split(":")[1]; 
@@ -615,6 +618,20 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
       return false;
     }
+  }
+
+  // Fungsi khusus untuk menangani pesan "SELESAI"
+  void _handleSelesaiMessage() {
+    print("🤖 Robot mengirim: SELESAI");
+
+    setStateIfMounted(() {
+      // Logic mematikan tombol X
+      Map<String, bool> updatedStates = Map.from(buttonStates);
+      updatedStates['X'] = false; 
+      buttonStates = updatedStates;
+    });
+
+    print("✅ Status tombol X di-reset menjadi OFF");
   }
 
   Future<void> disconnectDevice() async {
@@ -1140,6 +1157,9 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                   onTap: () {
                     Navigator.pop(context);
                     sendData(item['cmd']!);
+                    if (buttonStates['X'] == false) {
+                      onToggle('X'); 
+                    }
                   },
                 );
               },
@@ -1199,6 +1219,9 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                   onTap: () {
                     Navigator.pop(context);
                     sendData(item['cmd']!);
+                    if (buttonStates['B'] == false) {
+                      onToggle('B'); 
+                    }
                   },
                 );
               },
@@ -1256,6 +1279,9 @@ void showUltrasonicDialog() {
                   onTap: () {
                     Navigator.pop(context);
                     sendData(item['cmd']!);
+                    if (buttonStates['Y'] == false) {
+                      onToggle('Y'); 
+                    }
                   },
                 );
               },
@@ -1917,8 +1943,6 @@ class ActionButtonsWidget extends StatelessWidget {
              onToggle: () {
                 if (buttonStates['X'] == false) {
                   onCameraPressed();
-                  onToggle('X');
-
                 } else {
                   onToggle('X'); 
                 }
@@ -1938,7 +1962,6 @@ class ActionButtonsWidget extends StatelessWidget {
               onToggle: () {
                 if (buttonStates['Y'] == false) {
                   onUltrasonicPressed();
-                  onToggle('Y');
 
                 } else {
                   onToggle('Y'); 
@@ -1971,7 +1994,6 @@ class ActionButtonsWidget extends StatelessWidget {
               onToggle: () {
                 if (buttonStates['B'] == false) {
                   onVoicePressed();
-                  onToggle('B');
                    
                 } else {
                   onToggle('B'); 
