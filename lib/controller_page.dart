@@ -651,6 +651,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
           txCharacteristic = null;
           rxCharacteristic = null;
           batteryLevel = "--"; 
+          buttonStates.updateAll((key, value) => false);
         });
 
         showSuccess('Bluetooth Disconnected');
