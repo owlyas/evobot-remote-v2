@@ -580,9 +580,9 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                 //   print("✅ UI HARUSNYA UPDATE SEKARANG");
                 // }
 
-                if (response == "SELESAI") {
-                   _handleSelesaiMessage(); // <--- Panggil fungsi void di sini
-                }
+                // if (response == "SELESAI") {
+                //    _handleSelesaiMessage(); // <--- Panggil fungsi void di sini
+                // }
                 if (response.startsWith("BAT:")) {
                   setStateIfMounted(() {
                     batteryLevel = response.split(":")[1]; 
@@ -621,18 +621,18 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   // Fungsi khusus untuk menangani pesan "SELESAI"
-  void _handleSelesaiMessage() {
-    print("🤖 Robot mengirim: SELESAI");
+  // void _handleSelesaiMessage() {
+  //   print("🤖 Robot mengirim: SELESAI");
 
-    setStateIfMounted(() {
-      // Logic mematikan tombol X
-      Map<String, bool> updatedStates = Map.from(buttonStates);
-      updatedStates['X'] = false; 
-      buttonStates = updatedStates;
-    });
+  //   setStateIfMounted(() {
+  //     // Logic mematikan tombol X
+  //     Map<String, bool> updatedStates = Map.from(buttonStates);
+  //     updatedStates['X'] = false; 
+  //     buttonStates = updatedStates;
+  //   });
 
-    print("✅ Status tombol X di-reset menjadi OFF");
-  }
+  //   print("✅ Status tombol X di-reset menjadi OFF");
+  // }
 
   Future<void> disconnectDevice() async {
     if (connectedDevice != null) {
@@ -706,10 +706,12 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
 
     const moveCommands = {'F', 'B', 'L', 'R', 'S'};
-    const disableCommands = {'001', '002', '003', '004', '022'};
+    const disableCommands = {'011', '012', '013', '014', '022'};
+
+    StreamSubscription<List<int>>? sub;
 
     try {
-      // 🔒 Disable DPad
+      // 🔒 Disable DPad for disable commands
       if (disableCommands.contains(command)) {
         setState(() => dpadEnabled = false);
       }
@@ -724,7 +726,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       }
 
       final completer = Completer<void>();
-      late StreamSubscription sub;
+      final buttonKey = (command == '022') ? 'Y' : 'X';
 
       sub = txCharacteristic!.lastValueStream.listen((value) {
         final response = String.fromCharCodes(value).trim();
@@ -734,22 +736,57 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
           setState(() => dpadEnabled = true);
         }
 
-        if (response == 'OK' && !completer.isCompleted) {
+        // ✅ Wait for SELESAI
+        if (response == 'SELESAI' && !completer.isCompleted) {
+          // 🔘 Button OFF
+          setState(() {
+            final updated = Map<String, bool>.from(buttonStates);
+            updated[buttonKey] = false;
+            buttonStates = updated;
+          });
+
           completer.complete();
         }
       });
 
+      // 📤 Send command
       await rxCharacteristic!.write(
         command.codeUnits,
         withoutResponse: false,
       );
 
-      await completer.future.timeout(const Duration(seconds: 2));
-      await sub.cancel();
+      // ⏱ Wait only for disable commands
+      if (disableCommands.contains(command)) {
+        try {
+          await completer.future.timeout(
+            const Duration(minutes: 1, seconds: 10),
+          );
+        } on TimeoutException {
+          // ⏰ Timeout → force button OFF
+          setState(() {
+            final updated = Map<String, bool>.from(buttonStates);
+            updated[buttonKey] = false;
+            buttonStates = updated;
+          });
+        }
+
+        // 📤 Validate & send OFF status
+        if (buttonStates[buttonKey] == false) {
+          final statusCmd = (command == '022') ? 'YisOFF' : 'XisOFF';
+
+          await rxCharacteristic!.write(
+            statusCmd.codeUnits,
+            withoutResponse: false,
+          );
+        }
+
+        setState(() => dpadEnabled = true);
+      }
 
     } catch (e) {
-      setState(() => dpadEnabled = true); // safety
-      // showError('Command failed');
+      setState(() => dpadEnabled = true);
+    } finally {
+      await sub?.cancel();
     }
   }
   
