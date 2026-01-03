@@ -749,7 +749,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     } catch (e) {
       setState(() => dpadEnabled = true); // safety
-      showError('Command failed');
+      // showError('Command failed');
     }
   }
   
@@ -1111,6 +1111,11 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     if (key == 'B' && buttonStates['B'] == true) {
       sendData("BisOFF"); // <--- Kirim pesan saat dimatikan
       }
+
+    if (key == 'X' && buttonStates['X'] == true) {
+      sendData("XisOFF"); // <--- Kirim pesan saat dimatikan
+      }
+
 
     setState(() {
       buttonStates[key] = !buttonStates[key]!;
