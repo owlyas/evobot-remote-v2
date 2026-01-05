@@ -625,10 +625,14 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     print("🤖 Robot mengirim: SELESAI");
 
     setStateIfMounted(() {
+      dpadEnabled = true;
       // Logic mematikan tombol X
       Map<String, bool> updatedStates = Map.from(buttonStates);
       updatedStates['X'] = false; 
+      updatedStates['Y'] = false;
       buttonStates = updatedStates;
+
+      
     });
 
     print("✅ Status tombol X di-reset menjadi OFF");
@@ -706,8 +710,8 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
 
     const moveCommands = {'F', 'B', 'L', 'R', 'S'};
-    const disableCommands = {'001', '002', '003', '004', '022'};
-
+    const disableCommands = {'011', '012', '013', '014', '022'};
+    
     try {
       // 🔒 Disable DPad
       if (disableCommands.contains(command)) {
@@ -724,15 +728,15 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       }
 
       final completer = Completer<void>();
-      late StreamSubscription sub;
+      late StreamSubscription? sub;
 
       sub = txCharacteristic!.lastValueStream.listen((value) {
         final response = String.fromCharCodes(value).trim();
 
         // 🔄 Re-enable on STOP
-        if (response == 'STOP') {
-          setState(() => dpadEnabled = true);
-        }
+        // if (response == 'SELESAI') {
+        //   setState(() => dpadEnabled = true);
+        // }
 
         if (response == 'OK' && !completer.isCompleted) {
           completer.complete();
@@ -744,12 +748,18 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         withoutResponse: false,
       );
 
-      await completer.future.timeout(const Duration(seconds: 2));
-      await sub.cancel();
+      try {
+        await completer.future.timeout(const Duration(seconds: 2));
+      } catch (e) {
+        print("Timeout menunggu OK untuk command $command (Abaikan)");
+      }
+      
+      await sub?.cancel();
 
     } catch (e) {
-      setState(() => dpadEnabled = true); // safety
-      // showError('Command failed');
+      print("Gagal kirim data: $e");
+      // ⚠️ PENTING: Jangan set dpadEnabled = true di sini!
+      // Biarkan tetap terkunci sampai user mematikan manual atau robot kirim SELESAI.
     }
   }
   
@@ -1106,6 +1116,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     if (key == 'Y' && buttonStates['Y'] == true) {
       sendData("YisOFF"); // <--- Kirim pesan saat dimatikan
+      setState(() => dpadEnabled = true);
     }
 
     if (key == 'B' && buttonStates['B'] == true) {
@@ -1114,6 +1125,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     if (key == 'X' && buttonStates['X'] == true) {
       sendData("XisOFF"); // <--- Kirim pesan saat dimatikan
+      setState(() => dpadEnabled = true);
       }
 
 
