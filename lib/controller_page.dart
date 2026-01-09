@@ -47,6 +47,7 @@ class ControllerPageState extends State<ControllerPage> {
   DateTime? _lastErrorTime;
   bool dpadEnabled = true;
   late final WebViewController _videoController;
+  String command = '';
 
   Map<String, bool> buttonStates = {
     'UP': false,
@@ -489,7 +490,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
   }
 
-  Future<void> stopScan() async {
+  Future<void> stopScan() async { 
     try {
       stopTimer?.cancel();
       await FlutterBluePlus.stopScan().catchError((e) {
@@ -565,8 +566,8 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                   // );
                 }
 
-                // print('DEBUG TERIMA: "$response"');
-                // print('📥 TX received: $response');
+                print('DEBUG TERIMA: "$response"');
+                print('📥 TX received: $response');
 
                 // if (response == "SELESAI") {
                 // print("SELESAI = DITERIMA");
@@ -575,13 +576,13 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                 //   Map<String, bool> updatedStates = Map.from(buttonStates);
                 //   updatedStates['X'] = false;
                 //   buttonStates = updatedStates;
-                //   });
+                //   });R
 
                 //   print("✅ UI HARUSNYA UPDATE SEKARANG");
                 // }
 
-                if (response == "SELESAI") {
-                   _handleSelesaiMessage(); // <--- Panggil fungsi void di sini
+                if (response == "SELESAI_C" || response == "SELESAI_U") {
+                   _handleSelesaiMessage(response); // <--- Panggil fungsi void di sini
                 }
                 if (response.startsWith("BAT:")) {
                   setStateIfMounted(() {
@@ -621,17 +622,20 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   // Fungsi khusus untuk menangani pesan "SELESAI"
-  void _handleSelesaiMessage() {
-    print("🤖 Robot mengirim: SELESAI");
+  void _handleSelesaiMessage(final response) {
+    print("🤖 Robot mengirim: $response");
 
     setStateIfMounted(() {
-      dpadEnabled = true;
+      // dpadEnabled = true;
       // Logic mematikan tombol X
       Map<String, bool> updatedStates = Map.from(buttonStates);
-      updatedStates['X'] = false; 
-      updatedStates['Y'] = false;
+      if (response == "SELESAI_C") {
+        updatedStates['X'] = false;
+      }
+      else {
+        updatedStates['Y'] = false;
+      }
       buttonStates = updatedStates;
-
       
     });
 
@@ -1113,10 +1117,9 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   void onToggle(String key) {
-
     if (key == 'Y' && buttonStates['Y'] == true) {
       sendData("YisOFF"); // <--- Kirim pesan saat dimatikan
-      setState(() => dpadEnabled = true);
+      // setState(() => dpadEnabled = true);
     }
 
     if (key == 'B' && buttonStates['B'] == true) {
@@ -1125,9 +1128,15 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     if (key == 'X' && buttonStates['X'] == true) {
       sendData("XisOFF"); // <--- Kirim pesan saat dimatikan
-      setState(() => dpadEnabled = true);
+      // setState(() => dpadEnabled = true);
       }
 
+    if (command == '011' || command == '012' || command == '013' || command == '014' || command == '022') {
+      setState(() => dpadEnabled = false);
+    }
+    else if (command != '011' && command != '012' && command != '013' && command != '014' && command != '022') {
+      setState(() => dpadEnabled = true);
+    }
 
     setState(() {
       buttonStates[key] = !buttonStates[key]!;
@@ -2035,7 +2044,7 @@ class ActionButtonsWidget extends StatelessWidget {
 }
 
 
-class ActionButton extends StatelessWidget {
+  class ActionButton extends StatelessWidget {
   final String label;
   final bool isOn;                     // <-- toggle state
   final VoidCallback onToggle;         // <-- toggle callback
