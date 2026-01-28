@@ -58,6 +58,7 @@ class ControllerPageState extends State<ControllerPage> {
     'Y': false,
     'A': false,
     'B': false,
+    'Z': false,
   };
 
   double speedValue = 50.0;
@@ -1117,6 +1118,36 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   void onToggle(String key) {
+    bool isTurningOn = !buttonStates[key]!;
+
+if (key == 'Z') {
+      if (isTurningOn) {
+        sendData("VOICECOMMANDON");
+
+        if (buttonStates['B'] == true) {
+          setState(() {
+            buttonStates['B'] = false;
+          });
+          sendData("BisOFF"); 
+        }
+      } else {
+        sendData("VOICECOMMANDOFF");
+      }
+    }
+
+    if (key == 'B') {
+      if (isTurningOn) {
+        if (buttonStates['Z'] == true) {
+          setState(() {
+            buttonStates['Z'] = false;
+          });
+          sendData("VOICECOMMANDOFF"); 
+        }
+      } else {
+        sendData("BisOFF");
+      }
+    }
+
     if (key == 'Y' && buttonStates['Y'] == true) {
       sendData("YisOFF"); // <--- Kirim pesan saat dimatikan
       // setState(() => dpadEnabled = true);
@@ -1964,14 +1995,14 @@ class ActionButtonsWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 180,
-      height: 180,
+      width: 210,
+      height: 210,
       child: Stack(
         children: [
           // X button (Camera)
           Positioned(
-            top: 5,
-            left: 60,
+            top: 0,
+            left: 75,
             child: ActionButton(
               label: 'X',
               isOn: buttonStates['X']!,
@@ -1988,8 +2019,8 @@ class ActionButtonsWidget extends StatelessWidget {
 
           // Y button (Ultrasonik)
           Positioned(
-            left: 5,
-            top: 60,
+            left: 0,
+            top: 75,
             child: ActionButton(
               label: 'Y',
               isOn: buttonStates['Y']!,
@@ -2005,11 +2036,23 @@ class ActionButtonsWidget extends StatelessWidget {
               },
             ),
           ),
+          
+          Positioned(
+            top: 75,  // Posisi vertikal tengah
+            left: 75, // Posisi horizontal tengah
+            child: ActionButton(
+              label: 'Z',
+              isOn: buttonStates['Z']!, // Pastikan state 'Z' sudah ada
+              isLocked: false, 
+              // Logika ketika ditekan (bisa diganti dialog seperti tombol lain)
+              onToggle: () => onToggle('Z'), 
+            ),
+          ),
 
           // A button (Asap)
           Positioned(
-            right: 5,
-            top: 60,
+            right: 0,
+            top: 75,
             child: ActionButton(
               label: 'A',
               isOn: buttonStates['A']!,
@@ -2020,8 +2063,8 @@ class ActionButtonsWidget extends StatelessWidget {
 
           // B button (Mic)
           Positioned(
-            bottom: 5,
-            left: 60,
+            bottom: 0,
+            left: 75,
             child: ActionButton(
               label: 'B',
               isOn: buttonStates['B']!,
@@ -2103,6 +2146,18 @@ class ActionButtonsWidget extends StatelessWidget {
   <path transform="rotate(-90 15 16.5)" d="M4.375 16.0417C8.02083 16.0417 8.02083 18.9583 11.6667 18.9583M4.375 23.3333C8.02083 23.3333 8.02083 26.25 11.6667 26.25M23.3333 27.7083L18.9583 26.5417C18.5526 26.4589 18.1872 26.2406 17.9222 25.9225C17.6571 25.6044 17.5082 25.2056 17.5 24.7917V10.2083C17.5082 9.79439 17.6571 9.39556 17.9222 9.07749C18.1872 8.75943 18.5526 8.54106 18.9583 8.45834L23.3333 7.29167M4.375 8.75C8.02083 8.75 8.02083 11.6667 11.6667 11.6667M30.625 30.625C30.625 31.0118 30.4714 31.3827 30.1979 31.6562C29.9244 31.9297 29.5534 32.0833 29.1667 32.0833H26.25C25.4765 32.0833 24.7346 31.776 24.1876 31.2291C23.6406 30.6821 23.3333 29.9402 23.3333 29.1667V5.83334C23.3333 5.05979 23.6406 4.31792 24.1876 3.77094C24.7346 3.22396 25.4765 2.91667 26.25 2.91667H29.1667C29.5534 2.91667 29.9244 3.07032 30.1979 3.34381C30.4714 3.6173 30.625 3.98823 30.625 4.37501V30.625Z" stroke="#9A0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 ''';;
+
+case 'Z':
+        return '''
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" fill="none">
+  <path d="M6 7H24L6 23H24" 
+    stroke="#9A0000" 
+    stroke-width="3.5" 
+    stroke-linecap="round" 
+    stroke-linejoin="round"
+  />
+</svg>
+''';
       case 'B':
         return '''
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" fill="none">
