@@ -46,6 +46,7 @@ class ControllerPageState extends State<ControllerPage> {
   String? _lastErrorMessage;
   DateTime? _lastErrorTime;
   bool dpadEnabled = true;
+  bool isZBlocked = false;
   late final WebViewController _videoController;
   String command = '';
 
@@ -99,7 +100,7 @@ class ControllerPageState extends State<ControllerPage> {
   }
 
   @override
-  void dispose() {
+  void dispose() {       
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -582,6 +583,13 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                 //   print("✅ UI HARUSNYA UPDATE SEKARANG");
                 // }
 
+                if (response == "nonBlock") {
+                   print("🔓 Menerima nonBlock: Tombol Z terbuka, D-Pad tetap terkunci.");
+                   setStateIfMounted(() {
+                     isZBlocked = false; 
+                   });
+                }
+
                 if (response == "SELESAI_C" || response == "SELESAI_U") {
                    _handleSelesaiMessage(response); // <--- Panggil fungsi void di sini
                 }
@@ -661,6 +669,8 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
           rxCharacteristic = null;
           batteryLevel = "--"; 
           buttonStates.updateAll((key, value) => false);
+          dpadEnabled = true;
+          isZBlocked = false;
         });
 
         showSuccess('Bluetooth Disconnected');
@@ -1118,6 +1128,10 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   void onToggle(String key) {
+    if (key == 'Z' && isZBlocked) {
+       print("🚫 Tombol Z sedang terkunci menunggu 'nonBlock'");
+       return; 
+    }
     bool isTurningOn = !buttonStates[key]!;
 
 if (key == 'Z') {
@@ -1130,9 +1144,22 @@ if (key == 'Z') {
           });
           sendData("BisOFF"); 
         }
+
+           setState(() {
+          buttonStates['Z'] = true;
+          dpadEnabled = false; // 1. Dpad Terkunci
+          isZBlocked = true;   // 2. Tombol Z Terkunci
+        });
+
       } else {
         sendData("VOICECOMMANDOFF");
+        setState(() {
+          buttonStates['Z'] = false;
+          dpadEnabled = true;  // 3. Kunci Dpad Hilang
+          isZBlocked = false;  // Reset safety
+        });
       }
+      return;
     }
 
     if (key == 'B') {
@@ -1140,6 +1167,8 @@ if (key == 'Z') {
         if (buttonStates['Z'] == true) {
           setState(() {
             buttonStates['Z'] = false;
+            dpadEnabled = true; 
+            isZBlocked = false;
           });
           sendData("VOICECOMMANDOFF"); 
         }
@@ -1581,7 +1610,8 @@ void showUltrasonicDialog() {
                                   onToggle: onToggle,
                                   onVoicePressed: showVoiceDialog,
                                   onCameraPressed: showCameraDialog,
-                                  onUltrasonicPressed: showUltrasonicDialog,    
+                                  onUltrasonicPressed: showUltrasonicDialog,   
+                                  isZBlocked: isZBlocked, 
                                 ),
                               ),
                             ),
@@ -1983,6 +2013,7 @@ class ActionButtonsWidget extends StatelessWidget {
   final VoidCallback onVoicePressed;
   final VoidCallback onCameraPressed;
   final VoidCallback onUltrasonicPressed;
+  final bool isZBlocked;
 
   const ActionButtonsWidget({
     required this.buttonStates,
@@ -1990,6 +2021,7 @@ class ActionButtonsWidget extends StatelessWidget {
     required this.onVoicePressed,
     required this.onCameraPressed,
     required this.onUltrasonicPressed,  
+    required this.isZBlocked,
   });
 
   @override
@@ -2043,7 +2075,7 @@ class ActionButtonsWidget extends StatelessWidget {
             child: ActionButton(
               label: 'Z',
               isOn: buttonStates['Z']!, // Pastikan state 'Z' sudah ada
-              isLocked: false, 
+              isLocked: isZBlocked, 
               // Logika ketika ditekan (bisa diganti dialog seperti tombol lain)
               onToggle: () => onToggle('Z'), 
             ),
