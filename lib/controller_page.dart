@@ -588,7 +588,22 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
                    setStateIfMounted(() {
                      isZBlocked = false; 
                    });
+
+                   showSuccess("Voice Command Berhasil");
                 }
+
+                if (response == "V_GAGAL") {
+                    print("❌ Menerima V_GAGAL: Reset tombol Z.");
+
+                    setStateIfMounted(() {
+                    
+                      isZBlocked = false;       // Buka gembok Z
+                      dpadEnabled = true;       // Buka kunci D-Pad
+                      buttonStates['Z'] = false;// Matikan tombol Z secara visual
+                    });
+
+                    showError("Voice Command Gagal");
+                }    
 
                 if (response == "SELESAI_C" || response == "SELESAI_U") {
                    _handleSelesaiMessage(response); // <--- Panggil fungsi void di sini
@@ -635,7 +650,7 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     print("🤖 Robot mengirim: $response");
 
     setStateIfMounted(() {
-      // dpadEnabled = true;
+      dpadEnabled = true;
       // Logic mematikan tombol X
       Map<String, bool> updatedStates = Map.from(buttonStates);
       if (response == "SELESAI_C") {
@@ -1134,9 +1149,17 @@ SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     bool isTurningOn = !buttonStates[key]!;
 
+ if (key == 'A') {
+      if (isTurningOn) {
+        sendData("AisON");  
+      } else {
+        sendData("AisOFF"); 
+      }
+    }
+
 if (key == 'Z') {
       if (isTurningOn) {
-        sendData("VOICECOMMANDON");
+        sendData("VoiceON");
 
         if (buttonStates['B'] == true) {
           setState(() {
@@ -1147,16 +1170,16 @@ if (key == 'Z') {
 
            setState(() {
           buttonStates['Z'] = true;
-          dpadEnabled = false; // 1. Dpad Terkunci
-          isZBlocked = true;   // 2. Tombol Z Terkunci
+          dpadEnabled = false; 
+          isZBlocked = true;   
         });
 
       } else {
-        sendData("VOICECOMMANDOFF");
+        sendData("VoiceOFF");
         setState(() {
           buttonStates['Z'] = false;
-          dpadEnabled = true;  // 3. Kunci Dpad Hilang
-          isZBlocked = false;  // Reset safety
+          dpadEnabled = true;  
+          isZBlocked = false;  
         });
       }
       return;
@@ -1170,7 +1193,7 @@ if (key == 'Z') {
             dpadEnabled = true; 
             isZBlocked = false;
           });
-          sendData("VOICECOMMANDOFF"); 
+          sendData("VoiceOFF"); 
         }
       } else {
         sendData("BisOFF");
@@ -1178,17 +1201,15 @@ if (key == 'Z') {
     }
 
     if (key == 'Y' && buttonStates['Y'] == true) {
-      sendData("YisOFF"); // <--- Kirim pesan saat dimatikan
-      // setState(() => dpadEnabled = true);
+      sendData("YisOFF"); 
     }
 
     if (key == 'B' && buttonStates['B'] == true) {
-      sendData("BisOFF"); // <--- Kirim pesan saat dimatikan
+      sendData("BisOFF"); 
       }
 
     if (key == 'X' && buttonStates['X'] == true) {
-      sendData("XisOFF"); // <--- Kirim pesan saat dimatikan
-      // setState(() => dpadEnabled = true);
+      sendData("XisOFF"); 
       }
 
     if (command == '011' || command == '012' || command == '013' || command == '014' || command == '022') {
@@ -2182,17 +2203,6 @@ class ActionButtonsWidget extends StatelessWidget {
 case 'Z':
         return '''
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" fill="none">
-  <path d="M6 7H24L6 23H24" 
-    stroke="#9A0000" 
-    stroke-width="3.5" 
-    stroke-linecap="round" 
-    stroke-linejoin="round"
-  />
-</svg>
-''';
-      case 'B':
-        return '''
-<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" fill="none">
   <g clip-path="url(#clip0_48_108)" transform="rotate(-90 15 16.5)">
     <path d="M17.0294 23.1111H14.5967C12.3385 23.1111 10.1727 22.214 8.57593 20.6172C6.97913 19.0204 6.08205 16.8547 6.08205 14.5965M6.08205 14.5965C6.08205 12.3383 6.97913 10.1726 8.57593 8.57575C10.1727 6.97895 12.3385 6.08188 14.5967 6.08188H17.0294M6.08205 14.5965H1.21655M1.21655 9.731V19.462M27.9768 14.5965C27.9768 13.6287 27.5923 12.7005 26.908 12.0162C26.2237 11.3318 25.2955 10.9474 24.3277 10.9474H14.5967C13.6289 10.9474 12.7007 11.3318 12.0164 12.0162C11.332 12.7005 10.9476 13.6287 10.9476 14.5965C10.9476 15.5643 11.332 16.4925 12.0164 17.1768C12.7007 17.8612 13.6289 18.2456 14.5967 18.2456H24.3277C25.2955 18.2456 26.2237 17.8612 26.908 17.1768C27.5923 16.4925 27.9768 15.5643 27.9768 14.5965Z" stroke="#9A0000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
@@ -2201,6 +2211,14 @@ case 'Z':
       <rect width="29.193" height="29.193" fill="white" transform="matrix(0 1 -1 0 29.1931 0)"/>
     </clipPath>
   </defs>
+</svg>
+''';
+      case 'B':
+        return '''
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="#9A0000" class="bi bi-volume-up" viewBox="0 0 16 16">
+  <path d="M11.536 14.01A8.47 8.47 0 0 0 14.026 8a8.47 8.47 0 0 0-2.49-6.01l-.708.707A7.48 7.48 0 0 1 13.025 8c0 2.071-.84 3.946-2.197 5.303z"/>
+  <path d="M10.121 12.596A6.48 6.48 0 0 0 12.025 8a6.48 6.48 0 0 0-1.904-4.596l-.707.707A5.48 5.48 0 0 1 11.025 8a5.48 5.48 0 0 1-1.61 3.89z"/>
+  <path d="M10.025 8a4.5 4.5 0 0 1-1.318 3.182L8 10.475A3.5 3.5 0 0 0 9.025 8c0-.966-.392-1.841-1.025-2.475l.707-.707A4.5 4.5 0 0 1 10.025 8M7 4a.5.5 0 0 0-.812-.39L3.825 5.5H1.5A.5.5 0 0 0 1 6v4a.5.5 0 0 0 .5.5h2.325l2.363 1.89A.5.5 0 0 0 7 12zM4.312 6.39 6 5.04v5.92L4.312 9.61A.5.5 0 0 0 4 9.5H2v-3h2a.5.5 0 0 0 .312-.11"/>
 </svg>
 ''';;
       default:
